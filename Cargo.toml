@@ -1,17 +1,17 @@
 [package]
 description = "Rust parser combinator framework for small languages."
 documentation = "https://docs.rs/parserc"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 name = "parserc"
 repository = "https://github.com/styles-lab/parserc"
-version = "0.3.0"
+version = "0.3.1"
 
 [dependencies]
 log = {version = "^0.4", features = ["kv"]}
-serde = {version = "^1", features = ["derive"],optional = true}
+serde = {version = "^1", features = ["derive"], optional = true}
 thiserror = "^2"
 
 [features]
 default = ["serde"]
-serde = ["dep:serde","log/kv_serde"]
+serde = ["dep:serde", "log/kv_serde"]
