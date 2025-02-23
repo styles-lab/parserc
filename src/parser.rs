@@ -1,24 +1,28 @@
 use std::{fmt::Debug, marker::PhantomData, str::Chars};
 
-use crate::{ControlFlow, ParseContext, Result, Span, PARSERC_LOG_TARGET};
+use crate::{ControlFlow, ParseContext, Result, Span};
 
 /// A parser produce output by parsing and consuming the source codes.
 pub trait Parser {
+    /// Error type returns by [`parse`](Parser::parse) when some error occured.
+    type Error: Clone + Debug;
     /// Output data type.
     type Output;
 
     /// Parse and generate a new output.
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output>;
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error>;
 }
 
 /// Implement [`Parser`] for all [`FnMut`](&mut Input<'_>) -> Result<O, E>.
-impl<F, O> Parser for F
+impl<F, O, E> Parser for F
 where
-    F: FnOnce(&mut ParseContext<'_>) -> Result<O>,
+    E: Clone + Debug,
+    F: FnOnce(&mut ParseContext<'_>) -> Result<O, E>,
 {
+    type Error = E;
     type Output = O;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         (self)(ctx)
     }
 }
@@ -31,18 +35,19 @@ impl<S> Parser for Optional<S>
 where
     S: Parser,
 {
+    type Error = S::Error;
     type Output = Option<S::Output>;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         let start = ctx.span();
         match self.0.parse(ctx) {
             Err(err) => match err {
-                crate::ControlFlow::Fatal => {
+                crate::ControlFlow::Fatal(err) => {
                     if self.1 {
                         ctx.seek(start);
                         return Ok(None);
                     } else {
-                        return Err(ControlFlow::Fatal);
+                        return Err(ControlFlow::Fatal(err));
                     }
                 }
                 _ => {
@@ -59,14 +64,16 @@ where
 #[derive(Clone)]
 pub struct Or<S, O>(S, O);
 
-impl<S, O, Output> Parser for Or<S, O>
+impl<S, O, Output, Error> Parser for Or<S, O>
 where
-    S: Parser<Output = Output> + Clone,
-    O: Parser<Output = Output>,
+    S: Parser<Output = Output, Error = Error> + Clone,
+    O: Parser<Output = Output, Error = Error>,
+    Error: Debug + Clone,
 {
+    type Error = Error;
     type Output = Output;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         if let Some(output) = self.0.clone().ok().parse(ctx)? {
             return Ok(output);
         } else {
@@ -84,30 +91,33 @@ where
     S: Parser,
     F: FnOnce(S::Output) -> U,
 {
+    type Error = S::Error;
     type Output = U;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         self.0.parse(ctx).map(self.1)
     }
 }
 
 /// A combinator for [`fatal`](ParserExt::fatal) function.
 #[derive(Clone)]
-pub struct Fatal<S, E>(S, E, Span);
+pub struct Fatal<S, E>(S, E);
 
 impl<S, E> Parser for Fatal<S, E>
 where
     S: Parser,
     E: Debug,
 {
+    type Error = S::Error;
     type Output = S::Output;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         match self.0.parse(ctx) {
-            Err(_) => {
-                log::debug!(target: ctx.debug, span:serde = self.2; "{:?}",self.1);
-                return Err(ControlFlow::Fatal);
-            }
+            Err(err) => match err {
+                ControlFlow::Recoverable(err) => Err(ControlFlow::Fatal(err)),
+                ControlFlow::Incomplete(err) => Err(ControlFlow::Fatal(err)),
+                ControlFlow::Fatal(err) => Err(ControlFlow::Fatal(err)),
+            },
             r => return r,
         }
     }
@@ -158,42 +168,49 @@ pub trait ParserExt: Parser {
     }
 
     /// Convert any ControlFlow error to a fatal error.
-    fn fatal<E>(self, error: E, span: Span) -> Fatal<Self, E>
+    fn fatal<E>(self, error: E) -> Fatal<Self, E>
     where
         E: Debug,
         Self: Sized,
     {
-        Fatal(self, error, span)
+        Fatal(self, error)
     }
 }
 
 impl<T> ParserExt for T where T: Parser {}
 
 pub trait ParseOkOr<T>: Parser<Output = Option<T>> {
-    fn ok_or<E>(self, error: E, span: Span) -> OkOr<Self, E>
+    fn ok_or(self, error: Self::Error) -> OkOr<Self>
     where
-        E: Debug,
         Self: Sized,
     {
-        OkOr(self, error, span)
+        OkOr {
+            parser: self,
+            error,
+        }
     }
 }
 /// A combinator for [`ok_or`](ParseOkOr::ok_or) function.
-pub struct OkOr<P, E>(P, E, Span);
+pub struct OkOr<P>
+where
+    P: Parser,
+{
+    parser: P,
+    error: P::Error,
+}
 
-impl<S, E, T> Parser for OkOr<S, E>
+impl<S, T> Parser for OkOr<S>
 where
     S: Parser<Output = Option<T>>,
-    E: Debug,
 {
+    type Error = S::Error;
     type Output = T;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
-        match self.0.parse(ctx) {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
+        match self.parser.parse(ctx) {
             Ok(Some(v)) => return Ok(v),
             Ok(_) => {
-                log::debug!(target: PARSERC_LOG_TARGET,"{:?},{}",self.1,self.2);
-                return Err(ControlFlow::Fatal);
+                return Err(ControlFlow::Fatal(Some(self.error)));
             }
             Err(c) => {
                 return Err(c);
@@ -208,8 +225,9 @@ impl<T, P> ParseOkOr<T> for P where P: Parser<Output = Option<T>> {}
 ///
 /// See [`parse`](ParseExt::parse) function.
 pub trait FromSrc {
+    type Error: Clone + Debug;
     /// Parse and construct self from `ctx`
-    fn parse(ctx: &mut ParseContext<'_>) -> Result<Self>
+    fn parse(ctx: &mut ParseContext<'_>) -> Result<Self, Self::Error>
     where
         Self: Sized;
 }
@@ -240,9 +258,10 @@ impl<T> Parser for FromSrcParser<T>
 where
     T: FromSrc,
 {
+    type Error = T::Error;
     type Output = T;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         T::parse(ctx)
     }
 }
@@ -251,22 +270,23 @@ impl<T> Parser for Option<T>
 where
     T: FromSrc,
 {
+    type Error = T::Error;
     type Output = Option<T>;
 
-    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output> {
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         T::into_parser().ok().parse(ctx)
     }
 }
 
 /// An extension trait to add `parse` function to [`ParseContext`].
 pub trait ParseExt {
-    fn parse<Item>(&mut self) -> Result<Item>
+    fn parse<Item>(&mut self) -> Result<Item, Item::Error>
     where
         Item: FromSrc;
 }
 
 impl<'a> ParseExt for ParseContext<'a> {
-    fn parse<Item>(&mut self) -> Result<Item>
+    fn parse<Item>(&mut self) -> Result<Item, Item::Error>
     where
         Item: FromSrc,
     {
@@ -275,7 +295,10 @@ impl<'a> ParseExt for ParseContext<'a> {
 }
 
 /// The parser ensue the next token is char `c`.
-pub fn ensure_char(c: char) -> impl Parser<Output = Span> + Clone {
+pub fn ensure_char<E>(c: char) -> impl Parser<Output = Span, Error = E> + Clone
+where
+    E: Debug + Clone,
+{
     move |ctx: &mut ParseContext<'_>| {
         let (next, span) = ctx.next();
 
@@ -284,18 +307,19 @@ pub fn ensure_char(c: char) -> impl Parser<Output = Span> + Clone {
                 return Ok(span);
             }
 
-            return Err(ControlFlow::Recoverable);
+            return Err(ControlFlow::Recoverable(None));
         }
 
         // ctx.report_error(Kind::Char(c), span);
-        return Err(ControlFlow::Incomplete);
+        return Err(ControlFlow::Incomplete(None));
     }
 }
 
 /// The parser ensue the next token is char `c`.
-pub fn ensure_char_if<F>(f: F) -> impl Parser<Output = Span> + Clone
+pub fn ensure_char_if<F, E>(f: F) -> impl Parser<Output = Span, Error = E> + Clone
 where
     F: FnOnce(char) -> bool + Clone,
+    E: Debug + Clone,
 {
     move |ctx: &mut ParseContext<'_>| {
         let (next, span) = ctx.next();
@@ -305,10 +329,10 @@ where
                 return Ok(span);
             }
 
-            return Err(ControlFlow::Recoverable);
+            return Err(ControlFlow::Recoverable(None));
         }
 
-        return Err(ControlFlow::Incomplete);
+        return Err(ControlFlow::Incomplete(None));
     }
 }
 
@@ -356,7 +380,10 @@ impl Keyword for String {
 ///
 /// A keyword is a seqence of chars without spaces.
 #[inline(always)]
-pub fn ensure_keyword<KW: Keyword>(kw: KW) -> impl Parser<Output = Span> + Clone {
+pub fn ensure_keyword<KW: Keyword, E>(kw: KW) -> impl Parser<Output = Span, Error = E> + Clone
+where
+    E: Debug + Clone,
+{
     assert!(kw.len() > 0, "keyword length must greate than 0");
     move |ctx: &mut ParseContext<'_>| {
         let chars = kw.chars();
@@ -376,11 +403,11 @@ pub fn ensure_keyword<KW: Keyword>(kw: KW) -> impl Parser<Output = Span> + Clone
             if let Some(next) = next {
                 if next != c {
                     // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                    return Err(ControlFlow::Recoverable);
+                    return Err(ControlFlow::Recoverable(None));
                 }
             } else {
                 // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                return Err(ControlFlow::Incomplete);
+                return Err(ControlFlow::Incomplete(None));
             }
         }
 
@@ -394,7 +421,12 @@ pub fn ensure_keyword<KW: Keyword>(kw: KW) -> impl Parser<Output = Span> + Clone
 ///
 /// A keyword is a seqence of chars without spaces.
 #[inline(always)]
-pub fn ensure_keyword_insensitive<KW: Keyword>(kw: KW) -> impl Parser<Output = Span> + Clone {
+pub fn ensure_keyword_insensitive<KW: Keyword, E>(
+    kw: KW,
+) -> impl Parser<Output = Span, Error = E> + Clone
+where
+    E: Debug + Clone,
+{
     assert!(kw.len() > 0, "keyword length must greate than 0");
 
     move |ctx: &mut ParseContext<'_>| {
@@ -415,11 +447,11 @@ pub fn ensure_keyword_insensitive<KW: Keyword>(kw: KW) -> impl Parser<Output = S
             if let Some(next) = next {
                 if next.to_ascii_lowercase() != c.to_ascii_lowercase() {
                     // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                    return Err(ControlFlow::Recoverable);
+                    return Err(ControlFlow::Recoverable(None));
                 }
             } else {
                 // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                return Err(ControlFlow::Incomplete);
+                return Err(ControlFlow::Incomplete(None));
             }
         }
 
@@ -431,9 +463,10 @@ pub fn ensure_keyword_insensitive<KW: Keyword>(kw: KW) -> impl Parser<Output = S
 
 /// Returns the longest ctx [`Span`] (if any) that matches the predicate.
 #[inline(always)]
-pub fn take_while_indices<F>(f: F) -> impl Parser<Output = Option<Span>>
+pub fn take_while_indices<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(usize, char) -> bool,
+    E: Debug + Clone,
 {
     move |ctx: &mut ParseContext<'_>| {
         let (c, start) = ctx.next();
@@ -470,185 +503,125 @@ where
 ///
 /// This parser will never returns an error.
 #[inline(always)]
-pub fn take_while<F>(f: F) -> impl Parser<Output = Option<Span>>
+pub fn take_while<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(char) -> bool,
+    E: Debug + Clone,
 {
     take_while_indices(move |_, c| f(c))
 }
 
 /// Returns the longest ctx slice (if any) till a predicate is met.
 #[inline(always)]
-pub fn take_till<F>(f: F) -> impl Parser<Output = Option<Span>>
+pub fn take_till<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(char) -> bool,
+    E: Debug + Clone,
 {
     take_while_indices(move |_, c| !f(c))
 }
 
 /// Returns the longest ctx slice (if any) till a predicate is met.
 #[inline(always)]
-pub fn take_till_indices<F>(f: F) -> impl Parser<Output = Option<Span>>
+pub fn take_till_indices<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(usize, char) -> bool,
+    E: Debug + Clone,
 {
     take_while_indices(move |idx, c| !f(idx, c))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ensure_char, take_while, ControlFlow, ParseContext, ParserExt, Span};
+    use crate::{ControlFlow, ParseContext, ParserExt, Result, Span, ensure_char, take_while};
 
-    use super::{ensure_keyword, Parser};
+    use super::{Parser, ensure_keyword};
 
     #[test]
     fn test_keyword() {
-        assert_eq!(
-            ensure_keyword("fn").parse(&mut ParseContext::from("fnhello")),
-            Ok(Span::new(0, 2, 1, 1))
-        );
+        fn parse(i: &str, keyword: &str) -> Result<Span, ()> {
+            ensure_keyword(keyword).parse(&mut ParseContext::from(i))
+        }
 
-        assert_eq!(
-            ensure_keyword("struct").parse(&mut ParseContext::from("structhello")),
-            Ok(Span::new(0, 6, 1, 1))
-        );
+        assert_eq!(parse("fnhello", "fn"), Ok(Span::new(0, 2, 1, 1)));
 
-        assert_eq!(
-            ensure_keyword("fn").parse(&mut ParseContext::from("hfnello")),
-            Err(ControlFlow::Recoverable)
-        );
+        assert_eq!(parse("structhello", "struct"), Ok(Span::new(0, 6, 1, 1)));
 
-        assert_eq!(
-            ensure_keyword("fn").parse(&mut ParseContext::from("")),
-            Err(ControlFlow::Incomplete)
-        );
+        assert_eq!(parse("hfnello", "fn"), Err(ControlFlow::Recoverable(None)));
+
+        assert_eq!(parse("", "fn"), Err(ControlFlow::Incomplete(None)));
     }
 
     #[test]
     fn test_char() {
-        assert_eq!(
-            ensure_char('f').parse(&mut ParseContext::from("fnhello")),
-            Ok(Span::new(0, 1, 1, 1))
-        );
+        fn parse(i: &str, c: char) -> Result<Span, ()> {
+            ensure_char(c).parse(&mut ParseContext::from(i))
+        }
 
-        let mut ctx = ParseContext::from("hfnello");
+        assert_eq!(parse("fnhello", 'f'), Ok(Span::new(0, 1, 1, 1)));
 
-        assert_eq!(
-            ensure_char('f').parse(&mut ctx),
-            Err(ControlFlow::Recoverable)
-        );
+        assert_eq!(parse("hfnello", 'f'), Err(ControlFlow::Recoverable(None)));
 
-        assert_eq!(ctx.size_hint(), (1, 7));
-
-        let mut ctx = ParseContext::from("");
-
-        assert_eq!(
-            ensure_char('f').parse(&mut ctx),
-            Err(ControlFlow::Incomplete)
-        );
-
-        assert_eq!(ctx.size_hint(), (0, 0));
+        assert_eq!(parse("", 'f'), Err(ControlFlow::Incomplete(None)));
     }
 
     #[test]
     fn test_take_while() {
-        assert_eq!(
-            take_while(|c| c.is_alphabetic()).parse(&mut ParseContext::from("hello1")),
-            Ok(Some(Span::new(0, 5, 1, 1)))
-        );
+        fn parse(i: &str) -> Result<Option<Span>, ()> {
+            take_while(|c| c.is_alphabetic()).parse(&mut ParseContext::from(i))
+        }
+        assert_eq!(parse("hello1"), Ok(Some(Span::new(0, 5, 1, 1))));
 
-        assert_eq!(
-            take_while(|c| c.is_alphabetic()).parse(&mut ParseContext::from("捏啊哈！！")),
-            Ok(Some(Span::new(0, 9, 1, 1)))
-        );
+        assert_eq!(parse("捏啊哈！！"), Ok(Some(Span::new(0, 9, 1, 1))));
 
-        let mut ctx = ParseContext::from("！hello");
+        assert_eq!(parse("！hello"), Ok(None));
 
-        assert_eq!(take_while(|c| c.is_alphabetic()).parse(&mut ctx), Ok(None));
+        assert_eq!(parse("he！llo"), Ok(Some(Span::new(0, 2, 1, 1))));
 
-        let mut ctx = ParseContext::from("he！llo");
-
-        assert_eq!(
-            take_while(|c| c.is_alphabetic()).parse(&mut ctx),
-            Ok(Some(Span::new(0, 2, 1, 1)))
-        );
-
-        assert_eq!(ctx.size_hint(), (2, 8));
-
-        let mut ctx = ParseContext::from("");
-        assert_eq!(take_while(|c| c.is_alphabetic()).parse(&mut ctx), Ok(None));
-
-        assert_eq!(ctx.size_hint(), (0, 0));
+        assert_eq!(parse(""), Ok(None));
     }
 
     #[test]
     fn test_ok() {
-        assert_eq!(
-            ensure_keyword("fn")
+        fn parse(i: &str, keyword: &str) -> Result<Option<Span>, ()> {
+            ensure_keyword(keyword)
                 .ok()
-                .parse(&mut ParseContext::from("fn")),
-            Ok(Some(Span::new(0, 2, 1, 1)))
-        );
+                .parse(&mut ParseContext::from(i))
+        }
 
-        assert_eq!(
-            ensure_keyword("fn")
-                .ok()
-                .parse(&mut ParseContext::from("!fn")),
-            Ok(None)
-        );
+        assert_eq!(parse("fn", "fn"), Ok(Some(Span::new(0, 2, 1, 1))));
 
-        assert_eq!(
-            ensure_keyword("fn").ok().parse(&mut ParseContext::from("")),
-            Ok(None)
-        );
+        assert_eq!(parse("!fn", "fn"), Ok(None));
 
-        let mut ctx = ParseContext::from("ft");
+        assert_eq!(parse("", "fn"), Ok(None));
 
-        assert_eq!(ensure_keyword("fn").ok().parse(&mut ctx), Ok(None));
-
-        assert_eq!(ctx.size_hint(), (0, 2));
+        assert_eq!(parse("ft", "fn"), Ok(None));
     }
 
     #[test]
     fn test_map() {
-        assert_eq!(
-            ensure_keyword("fn")
+        fn parse(i: &str, keyword: &str) -> Result<bool, ()> {
+            ensure_keyword(keyword)
                 .map(|_| true)
-                .parse(&mut ParseContext::from("fn")),
-            Ok(true)
-        );
+                .parse(&mut ParseContext::from(i))
+        }
+        assert_eq!(parse("fn", "fn"), Ok(true));
 
-        assert_eq!(
-            ensure_keyword("fn")
-                .map(|_| true)
-                .parse(&mut ParseContext::from("!fn")),
-            Err(ControlFlow::Recoverable)
-        );
+        assert_eq!(parse("!fn", "fn"), Err(ControlFlow::Recoverable(None)));
 
-        assert_eq!(
-            ensure_keyword("fn")
-                .map(|_| true)
-                .parse(&mut ParseContext::from("")),
-            Err(ControlFlow::Incomplete)
-        );
+        assert_eq!(parse("", "fn"), Err(ControlFlow::Incomplete(None)));
     }
 
     #[test]
     fn test_or() {
-        assert_eq!(
-            ensure_keyword("fn")
+        fn parse(i: &str, k1: &str, k2: &str) -> Result<bool, ()> {
+            ensure_keyword(k1)
                 .map(|_| true)
-                .or(ensure_keyword("struct").map(|_| false))
-                .parse(&mut ParseContext::from("fn")),
-            Ok(true)
-        );
+                .or(ensure_keyword(k2).map(|_| false))
+                .parse(&mut ParseContext::from(i))
+        }
+        assert_eq!(parse("fn", "fn", "struct"), Ok(true));
 
-        assert_eq!(
-            ensure_keyword("fn")
-                .map(|_| true)
-                .or(ensure_keyword("struct").map(|_| false))
-                .parse(&mut ParseContext::from("struct")),
-            Ok(false)
-        );
+        assert_eq!(parse("struct", "fn", "struct"), Ok(false));
     }
 }

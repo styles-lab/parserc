@@ -4,8 +4,6 @@ use std::{
     str::CharIndices,
 };
 
-use crate::PARSERC_LOG_TARGET;
-
 /// A `span` is a reference to a fragment of the source code.
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -104,7 +102,6 @@ impl<'a> FromSpan<'a> for &'a str {
 
 /// A seekable source code stream.
 pub struct ParseContext<'a> {
-    pub(crate) debug: &'static str,
     /// raw source code.
     source: &'a str,
     /// the char stream iterator.
@@ -120,7 +117,6 @@ pub struct ParseContext<'a> {
 impl<'a> From<&'a str> for ParseContext<'a> {
     fn from(value: &'a str) -> Self {
         Self {
-            debug: PARSERC_LOG_TARGET,
             source: value,
             iter: value.char_indices().peekable(),
             lines: 1,
@@ -137,16 +133,6 @@ impl<'a> From<&'a String> for ParseContext<'a> {
 }
 
 impl<'a> ParseContext<'a> {
-    /// update the debug label of this `ParseContext`
-    pub fn with_debug(mut self, label: &'static str) -> Self {
-        self.debug = label;
-        self
-    }
-    /// update the debug label of this `ParseContext`
-    pub fn debug(&mut self, label: &'static str) {
-        self.debug = label;
-    }
-
     /// Return the [`Span`] of the next char.
     ///
     /// Use [`eof`](Span::eof) fn to check if the eof is reached.
