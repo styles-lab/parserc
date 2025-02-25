@@ -101,6 +101,7 @@ impl<'a> FromSpan<'a> for &'a str {
 }
 
 /// A seekable source code stream.
+#[derive(Debug)]
 pub struct ParseContext<'a> {
     /// raw source code.
     source: &'a str,

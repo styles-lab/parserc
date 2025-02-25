@@ -1,11 +1,11 @@
-use std::{fmt::Debug, marker::PhantomData, str::Chars};
+use std::{marker::PhantomData, str::Chars};
 
-use crate::{ControlFlow, ParseContext, Result, Span};
+use crate::{ControlFlow, Kind, ParseContext, ParseError, Result, Span};
 
 /// A parser produce output by parsing and consuming the source codes.
 pub trait Parser {
     /// Error type returns by [`parse`](Parser::parse) when some error occured.
-    type Error: Clone + Debug;
+    type Error: ParseError;
     /// Output data type.
     type Output;
 
@@ -16,7 +16,7 @@ pub trait Parser {
 /// Implement [`Parser`] for all [`FnMut`](&mut Input<'_>) -> Result<O, E>.
 impl<F, O, E> Parser for F
 where
-    E: Clone + Debug,
+    E: ParseError,
     F: FnOnce(&mut ParseContext<'_>) -> Result<O, E>,
 {
     type Error = E;
@@ -68,7 +68,7 @@ impl<S, O, Output, Error> Parser for Or<S, O>
 where
     S: Parser<Output = Output, Error = Error> + Clone,
     O: Parser<Output = Output, Error = Error>,
-    Error: Debug + Clone,
+    Error: ParseError,
 {
     type Error = Error;
     type Output = Output;
@@ -101,12 +101,13 @@ where
 
 /// A combinator for [`fatal`](ParserExt::fatal) function.
 #[derive(Clone)]
-pub struct Fatal<S, E>(S, E);
+pub struct Fatal<S>(S, S::Error)
+where
+    S: Parser;
 
-impl<S, E> Parser for Fatal<S, E>
+impl<S> Parser for Fatal<S>
 where
     S: Parser,
-    E: Debug,
 {
     type Error = S::Error;
     type Output = S::Output;
@@ -114,9 +115,9 @@ where
     fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
         match self.0.parse(ctx) {
             Err(err) => match err {
-                ControlFlow::Recoverable(err) => Err(ControlFlow::Fatal(err)),
-                ControlFlow::Incomplete(err) => Err(ControlFlow::Fatal(err)),
-                ControlFlow::Fatal(err) => Err(ControlFlow::Fatal(err)),
+                ControlFlow::Recoverable(_) => Err(ControlFlow::Fatal(self.1)),
+                ControlFlow::Incomplete(_) => Err(ControlFlow::Fatal(self.1)),
+                ControlFlow::Fatal(_) => Err(ControlFlow::Fatal(self.1)),
             },
             r => return r,
         }
@@ -168,9 +169,8 @@ pub trait ParserExt: Parser {
     }
 
     /// Convert any ControlFlow error to a fatal error.
-    fn fatal<E>(self, error: E) -> Fatal<Self, E>
+    fn fatal(self, error: Self::Error) -> Fatal<Self>
     where
-        E: Debug,
         Self: Sized,
     {
         Fatal(self, error)
@@ -210,7 +210,7 @@ where
         match self.parser.parse(ctx) {
             Ok(Some(v)) => return Ok(v),
             Ok(_) => {
-                return Err(ControlFlow::Fatal(Some(self.error)));
+                return Err(ControlFlow::Fatal(self.error));
             }
             Err(c) => {
                 return Err(c);
@@ -225,7 +225,7 @@ impl<T, P> ParseOkOr<T> for P where P: Parser<Output = Option<T>> {}
 ///
 /// See [`parse`](ParseExt::parse) function.
 pub trait FromSrc {
-    type Error: Clone + Debug;
+    type Error: ParseError;
     /// Parse and construct self from `ctx`
     fn parse(ctx: &mut ParseContext<'_>) -> Result<Self, Self::Error>
     where
@@ -297,7 +297,7 @@ impl<'a> ParseExt for ParseContext<'a> {
 /// The parser ensue the next token is char `c`.
 pub fn ensure_char<E>(c: char) -> impl Parser<Output = Span, Error = E> + Clone
 where
-    E: Debug + Clone,
+    E: ParseError,
 {
     move |ctx: &mut ParseContext<'_>| {
         let (next, span) = ctx.next();
@@ -307,11 +307,11 @@ where
                 return Ok(span);
             }
 
-            return Err(ControlFlow::Recoverable(None));
+            return Err(ControlFlow::Recoverable(Kind::EnsureChar.into()));
         }
 
         // ctx.report_error(Kind::Char(c), span);
-        return Err(ControlFlow::Incomplete(None));
+        return Err(ControlFlow::Incomplete(Kind::EnsureChar.into()));
     }
 }
 
@@ -319,7 +319,7 @@ where
 pub fn ensure_char_if<F, E>(f: F) -> impl Parser<Output = Span, Error = E> + Clone
 where
     F: FnOnce(char) -> bool + Clone,
-    E: Debug + Clone,
+    E: ParseError,
 {
     move |ctx: &mut ParseContext<'_>| {
         let (next, span) = ctx.next();
@@ -329,10 +329,10 @@ where
                 return Ok(span);
             }
 
-            return Err(ControlFlow::Recoverable(None));
+            return Err(ControlFlow::Recoverable(Kind::EnsureCharIf.into()));
         }
 
-        return Err(ControlFlow::Incomplete(None));
+        return Err(ControlFlow::Incomplete(Kind::EnsureCharIf.into()));
     }
 }
 
@@ -382,7 +382,7 @@ impl Keyword for String {
 #[inline(always)]
 pub fn ensure_keyword<KW: Keyword, E>(kw: KW) -> impl Parser<Output = Span, Error = E> + Clone
 where
-    E: Debug + Clone,
+    E: ParseError,
 {
     assert!(kw.len() > 0, "keyword length must greate than 0");
     move |ctx: &mut ParseContext<'_>| {
@@ -403,11 +403,11 @@ where
             if let Some(next) = next {
                 if next != c {
                     // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                    return Err(ControlFlow::Recoverable(None));
+                    return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
                 }
             } else {
                 // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                return Err(ControlFlow::Incomplete(None));
+                return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
             }
         }
 
@@ -425,7 +425,7 @@ pub fn ensure_keyword_insensitive<KW: Keyword, E>(
     kw: KW,
 ) -> impl Parser<Output = Span, Error = E> + Clone
 where
-    E: Debug + Clone,
+    E: ParseError,
 {
     assert!(kw.len() > 0, "keyword length must greate than 0");
 
@@ -447,11 +447,11 @@ where
             if let Some(next) = next {
                 if next.to_ascii_lowercase() != c.to_ascii_lowercase() {
                     // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                    return Err(ControlFlow::Recoverable(None));
+                    return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
                 }
             } else {
                 // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                return Err(ControlFlow::Incomplete(None));
+                return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
             }
         }
 
@@ -466,7 +466,7 @@ where
 pub fn take_while_indices<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(usize, char) -> bool,
-    E: Debug + Clone,
+    E: ParseError,
 {
     move |ctx: &mut ParseContext<'_>| {
         let (c, start) = ctx.next();
@@ -506,7 +506,7 @@ where
 pub fn take_while<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(char) -> bool,
-    E: Debug + Clone,
+    E: ParseError,
 {
     take_while_indices(move |_, c| f(c))
 }
@@ -516,7 +516,7 @@ where
 pub fn take_till<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(char) -> bool,
-    E: Debug + Clone,
+    E: ParseError,
 {
     take_while_indices(move |_, c| !f(c))
 }
@@ -526,20 +526,22 @@ where
 pub fn take_till_indices<F, E>(f: F) -> impl Parser<Output = Option<Span>, Error = E>
 where
     F: Fn(usize, char) -> bool,
-    E: Debug + Clone,
+    E: ParseError,
 {
     take_while_indices(move |idx, c| !f(idx, c))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{ControlFlow, ParseContext, ParserExt, Result, Span, ensure_char, take_while};
+    use crate::{
+        ControlFlow, Kind, ParseContext, ParserExt, Result, Span, ensure_char, take_while,
+    };
 
     use super::{Parser, ensure_keyword};
 
     #[test]
     fn test_keyword() {
-        fn parse(i: &str, keyword: &str) -> Result<Span, ()> {
+        fn parse(i: &str, keyword: &str) -> Result<Span, Kind> {
             ensure_keyword(keyword).parse(&mut ParseContext::from(i))
         }
 
@@ -547,27 +549,39 @@ mod tests {
 
         assert_eq!(parse("structhello", "struct"), Ok(Span::new(0, 6, 1, 1)));
 
-        assert_eq!(parse("hfnello", "fn"), Err(ControlFlow::Recoverable(None)));
+        assert_eq!(
+            parse("hfnello", "fn"),
+            Err(ControlFlow::Recoverable(Kind::EnsureKeyword))
+        );
 
-        assert_eq!(parse("", "fn"), Err(ControlFlow::Incomplete(None)));
+        assert_eq!(
+            parse("", "fn"),
+            Err(ControlFlow::Incomplete(Kind::EnsureKeyword))
+        );
     }
 
     #[test]
     fn test_char() {
-        fn parse(i: &str, c: char) -> Result<Span, ()> {
+        fn parse(i: &str, c: char) -> Result<Span, Kind> {
             ensure_char(c).parse(&mut ParseContext::from(i))
         }
 
         assert_eq!(parse("fnhello", 'f'), Ok(Span::new(0, 1, 1, 1)));
 
-        assert_eq!(parse("hfnello", 'f'), Err(ControlFlow::Recoverable(None)));
+        assert_eq!(
+            parse("hfnello", 'f'),
+            Err(ControlFlow::Recoverable(Kind::EnsureChar))
+        );
 
-        assert_eq!(parse("", 'f'), Err(ControlFlow::Incomplete(None)));
+        assert_eq!(
+            parse("", 'f'),
+            Err(ControlFlow::Incomplete(Kind::EnsureChar))
+        );
     }
 
     #[test]
     fn test_take_while() {
-        fn parse(i: &str) -> Result<Option<Span>, ()> {
+        fn parse(i: &str) -> Result<Option<Span>, Kind> {
             take_while(|c| c.is_alphabetic()).parse(&mut ParseContext::from(i))
         }
         assert_eq!(parse("hello1"), Ok(Some(Span::new(0, 5, 1, 1))));
@@ -583,7 +597,7 @@ mod tests {
 
     #[test]
     fn test_ok() {
-        fn parse(i: &str, keyword: &str) -> Result<Option<Span>, ()> {
+        fn parse(i: &str, keyword: &str) -> Result<Option<Span>, Kind> {
             ensure_keyword(keyword)
                 .ok()
                 .parse(&mut ParseContext::from(i))
@@ -600,21 +614,27 @@ mod tests {
 
     #[test]
     fn test_map() {
-        fn parse(i: &str, keyword: &str) -> Result<bool, ()> {
+        fn parse(i: &str, keyword: &str) -> Result<bool, Kind> {
             ensure_keyword(keyword)
                 .map(|_| true)
                 .parse(&mut ParseContext::from(i))
         }
         assert_eq!(parse("fn", "fn"), Ok(true));
 
-        assert_eq!(parse("!fn", "fn"), Err(ControlFlow::Recoverable(None)));
+        assert_eq!(
+            parse("!fn", "fn"),
+            Err(ControlFlow::Recoverable(Kind::EnsureKeyword))
+        );
 
-        assert_eq!(parse("", "fn"), Err(ControlFlow::Incomplete(None)));
+        assert_eq!(
+            parse("", "fn"),
+            Err(ControlFlow::Incomplete(Kind::EnsureKeyword))
+        );
     }
 
     #[test]
     fn test_or() {
-        fn parse(i: &str, k1: &str, k2: &str) -> Result<bool, ()> {
+        fn parse(i: &str, k1: &str, k2: &str) -> Result<bool, Kind> {
             ensure_keyword(k1)
                 .map(|_| true)
                 .or(ensure_keyword(k2).map(|_| false))
