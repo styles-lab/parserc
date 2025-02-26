@@ -566,10 +566,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        ControlFlow, Kind, ParseContext, ParserExt, Result, Span, ensure_char, take_while,
+        ensure_char, take_while, ControlFlow, Kind, ParseContext, ParserExt, Result, Span,
     };
 
-    use super::{Parser, ensure_keyword};
+    use super::{ensure_keyword, Parser};
 
     #[test]
     fn test_keyword() {
