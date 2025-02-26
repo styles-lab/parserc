@@ -115,6 +115,19 @@ pub struct ParseContext<'a> {
     cols: usize,
 }
 
+impl<'a> ParseContext<'a> {
+    /// Create a new `ParseContext` with additional arguments.
+    pub fn new(source: &'a str, offset: usize, lines: usize, cols: usize) -> Self {
+        Self {
+            source,
+            iter: source.char_indices().peekable(),
+            offset,
+            lines,
+            cols,
+        }
+    }
+}
+
 impl<'a> From<&'a str> for ParseContext<'a> {
     fn from(value: &'a str) -> Self {
         Self {

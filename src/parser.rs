@@ -99,6 +99,28 @@ where
     }
 }
 
+/// A combinator for [`map_err`](ParserExt::map_err) function.
+#[derive(Clone)]
+pub struct MapErr<S, F>(S, F);
+
+impl<S, F, E> Parser for MapErr<S, F>
+where
+    S: Parser,
+    F: FnOnce(S::Error) -> E,
+    E: ParseError,
+{
+    type Error = E;
+    type Output = S::Output;
+
+    fn parse(self, ctx: &mut ParseContext<'_>) -> Result<Self::Output, Self::Error> {
+        self.0.parse(ctx).map_err(|err| match err {
+            ControlFlow::Recoverable(err) => ControlFlow::Recoverable((self.1)(err)),
+            ControlFlow::Incomplete(err) => ControlFlow::Incomplete((self.1)(err)),
+            ControlFlow::Fatal(err) => ControlFlow::Fatal((self.1)(err)),
+        })
+    }
+}
+
 /// A combinator for [`fatal`](ParserExt::fatal) function.
 #[derive(Clone)]
 pub struct Fatal<S>(S, S::Error)
@@ -166,6 +188,16 @@ pub trait ParserExt: Parser {
         Self: Sized,
     {
         Map(self, op)
+    }
+
+    /// Map parser `Result<T,E>` to `Result<T,U>` by applying a function to a contained Err value, leaving an Ok value untouched.
+    fn map_err<F, U>(self, op: F) -> MapErr<Self, F>
+    where
+        F: FnOnce(<Self as Parser>::Error) -> U,
+        U: ParseError,
+        Self: Sized,
+    {
+        MapErr(self, op)
     }
 
     /// Convert any ControlFlow error to a fatal error.
