@@ -429,25 +429,32 @@ where
 {
     assert!(kw.len() > 0, "keyword length must greate than 0");
     move |ctx: &mut ParseContext<'_>| {
-        let kw = kw.as_str();
+        let chars = kw.chars();
 
-        let unparsed = ctx.unparsed();
+        let mut start = None;
+        let mut end = None;
 
-        if unparsed.len() < kw.len() {
-            return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
+        for c in chars {
+            let (next, span) = ctx.next();
+
+            if start.is_none() {
+                start = Some(span);
+            }
+
+            end = Some(span);
+
+            if let Some(next) = next {
+                if next != c {
+                    // ctx.report_error(Kind::Keyword(kw.into_string()), span);
+                    return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
+                }
+            } else {
+                // ctx.report_error(Kind::Keyword(kw.into_string()), span);
+                return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
+            }
         }
 
-        if kw != &unparsed[..kw.len()] {
-            return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
-        }
-
-        let mut span = ctx.span();
-
-        for _ in 0..kw.len() {
-            ctx.next();
-        }
-
-        span.len = kw.len();
+        let span = start.unwrap().extend_to_inclusive(end.unwrap());
 
         Ok(span)
     }
