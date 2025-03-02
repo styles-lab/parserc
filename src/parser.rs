@@ -267,6 +267,7 @@ pub trait FromSrc {
 /// A helper trait that convert [`FromSrc`] into a [`Parser`].
 pub trait IntoParser: FromSrc {
     /// Conver self into parser.
+    #[inline]
     fn into_parser() -> FromSrcParser<Self>
     where
         Self: Sized,
@@ -566,10 +567,10 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        ensure_char, take_while, ControlFlow, Kind, ParseContext, ParserExt, Result, Span,
+        ControlFlow, Kind, ParseContext, ParserExt, Result, Span, ensure_char, take_while,
     };
 
-    use super::{ensure_keyword, Parser};
+    use super::{Parser, ensure_keyword};
 
     #[test]
     fn test_keyword() {
