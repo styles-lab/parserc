@@ -374,6 +374,8 @@ pub trait Keyword: Clone {
     /// Get `String` representation of this keyword.
     fn into_string(self) -> String;
 
+    fn as_str(&self) -> &str;
+
     /// Returns char iterator.
     fn chars(&self) -> Chars<'_>;
 
@@ -384,6 +386,10 @@ pub trait Keyword: Clone {
 impl Keyword for &str {
     fn into_string(self) -> String {
         str::to_string(&self)
+    }
+
+    fn as_str(&self) -> &str {
+        self
     }
 
     fn chars(&self) -> Chars<'_> {
@@ -397,6 +403,10 @@ impl Keyword for &str {
 
 impl Keyword for String {
     fn into_string(self) -> String {
+        self
+    }
+
+    fn as_str(&self) -> &str {
         self
     }
 
@@ -419,32 +429,25 @@ where
 {
     assert!(kw.len() > 0, "keyword length must greate than 0");
     move |ctx: &mut ParseContext<'_>| {
-        let chars = kw.chars();
+        let kw = kw.as_str();
 
-        let mut start = None;
-        let mut end = None;
+        let unparsed = ctx.unparsed();
 
-        for c in chars {
-            let (next, span) = ctx.next();
-
-            if start.is_none() {
-                start = Some(span);
-            }
-
-            end = Some(span);
-
-            if let Some(next) = next {
-                if next != c {
-                    // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                    return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
-                }
-            } else {
-                // ctx.report_error(Kind::Keyword(kw.into_string()), span);
-                return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
-            }
+        if unparsed.len() < kw.len() {
+            return Err(ControlFlow::Incomplete(Kind::EnsureKeyword.into()));
         }
 
-        let span = start.unwrap().extend_to_inclusive(end.unwrap());
+        if kw != &unparsed[..kw.len()] {
+            return Err(ControlFlow::Recoverable(Kind::EnsureKeyword.into()));
+        }
+
+        let mut span = ctx.span();
+
+        for _ in 0..kw.len() {
+            ctx.next();
+        }
+
+        span.len = kw.len();
 
         Ok(span)
     }
