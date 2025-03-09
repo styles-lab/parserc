@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use memchr::memmem;
+
 use crate::{AsBytes, ControlFlow, Input, Item, Kind, Result};
 
 /// A parserc `Parser` must implement this trait.
@@ -93,7 +95,7 @@ where
 }
 
 /// Recognize next inpput item.
-#[inline]
+#[inline(always)]
 pub fn ensure_next<C, I>(c: C) -> impl Parser<I, Output = I, Error = Kind>
 where
     I: Input<Item = C>,
@@ -110,9 +112,30 @@ where
     }
 }
 
+/// Returns the input slice up to the first occurrence of the pattern.
+#[inline(always)]
+pub fn take_until<KW, I>(keyword: KW) -> impl Parser<I, Output = I, Error = Kind>
+where
+    I: Input + AsBytes,
+    KW: Input + AsBytes,
+{
+    move |mut input: I| {
+        let len = keyword.len();
+        if input.len() < len {
+            return Err(ControlFlow::Recovable(Kind::TakeUntil));
+        }
+
+        if let Some(offset) = memmem::find(input.as_bytes(), keyword.as_bytes()) {
+            return Ok((input.split_to(offset), input));
+        }
+
+        return Err(ControlFlow::Recovable(Kind::TakeUntil));
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::{ControlFlow, Kind, Parser, Result, ensure_keyword, ensure_next};
+    use crate::{ControlFlow, Kind, Parser, Result, ensure_keyword, ensure_next, take_until};
 
     use super::ParserExt;
 
@@ -154,6 +177,14 @@ mod tests {
         assert_eq!(
             ensure_next(b'<').parse(b"<world  ".as_slice()),
             Ok((b"<".as_slice(), b"world  ".as_slice()))
+        );
+    }
+
+    #[test]
+    fn test_take_until() {
+        assert_eq!(
+            take_until("<!--").parse(b"<world  <!--".as_slice()),
+            Ok((b"<world  ".as_slice(), b"<!--".as_slice()))
         );
     }
 }

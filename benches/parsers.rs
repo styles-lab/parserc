@@ -1,17 +1,23 @@
 use divan::bench;
-use parserc::{ControlFlow, Kind, Parser, ParserExt, Result, ensure_keyword, ensure_next};
+use parserc::{Parser, ParserExt, ensure_keyword, ensure_next, take_until};
 
 fn main() {
     divan::main();
 }
 
-fn mock_recovable(_: &str) -> Result<&str, &str, Kind> {
-    Err(ControlFlow::Recovable(Kind::None))
+#[bench]
+fn bench_opt() {
+    ensure_keyword("hello")
+        .ok()
+        .parse(b"hello world".as_slice())
+        .unwrap();
 }
 
 #[bench]
-fn bench_opt() {
-    mock_recovable.ok().parse("hello world").unwrap();
+fn bench_take_until() {
+    take_until("<!--")
+        .parse(b"world !!!!!!!  dfdfdfdfdfd <!--".as_slice())
+        .unwrap();
 }
 
 #[bench]

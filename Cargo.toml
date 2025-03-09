@@ -9,9 +9,9 @@ version = "0.4.2"
 
 [dependencies]
 log = {version = "^0.4", features = ["kv"]}
+memchr = "^2.7"
 serde = {version = "^1", features = ["derive"], optional = true}
 thiserror = "^2"
-
 [dev-dependencies]
 divan = "0.1.17"
 

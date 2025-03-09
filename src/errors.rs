@@ -41,6 +41,8 @@ pub enum Kind {
     Char,
     #[error("byte")]
     Byte,
+    #[error("take_until")]
+    TakeUntil,
 }
 
 /// Result type used by `parserc`.
