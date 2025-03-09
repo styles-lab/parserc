@@ -1,48 +1,47 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, num::NonZeroUsize};
 
-/// A trait that parserc error must implement.
-pub trait ParseError: From<Kind> + Clone + Debug {}
-
-/// Error type returns by parserc.
-#[derive(Debug, thiserror::Error, PartialEq, Eq, PartialOrd, Ord, Clone)]
-pub enum Kind {
-    #[error("ensure_char")]
-    EnsureChar,
-    #[error("ensure_char_if")]
-    EnsureCharIf,
-    #[error("ensure_keyword")]
-    EnsureKeyword,
+/// Contains information on needed data if a parser returned Incomplete
+#[derive(Debug, PartialEq, Eq)]
+pub enum Needed {
+    /// Needs more data, but we do not know how much
+    Unknown,
+    /// Contains the required data size in bytes
+    Size(NonZeroUsize),
 }
 
-impl ParseError for Kind {}
-
-/// Error type to control combinator parsing procedure.
-#[derive(Debug, thiserror::Error, PartialEq, Eq, PartialOrd, Ord, Clone)]
+/// ControlFlow for parserc `Parser`.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ControlFlow<E>
 where
-    E: ParseError,
+    E: Debug,
 {
-    #[error("combinator report a recoverable error. {0}")]
-    Recoverable(E),
-    #[error("combinator report that reached the end of the source code. {0}")]
-    Incomplete(E),
-    #[error("combinator report a fatal error. {0}")]
+    /// indicates that more data is needed to decide. The Needed enum can contain how many additional bytes are necessary.
+    /// If you are sure your parser is working on full data, you can wrap your parser with the complete combinator to
+    /// transform that case in Error
+    #[error("incomplete: {0:?}")]
+    Incomplete(Needed),
+    /// indicates an unrecoverable error. For example, when a prefix has been recognised and the next parser has been confirmed,
+    /// if that parser fails, then the entire process fails; there are no more parsers to try.
+    #[error("fatal: {0:?}")]
     Fatal(E),
+    /// means some parser did not succeed, but another one might (as an example, when testing different branches of an `or` combinator)
+    ///
+    #[error("recovable: {0:?}")]
+    Recovable(E),
 }
 
-impl<E> ControlFlow<E>
-where
-    E: ParseError,
-{
-    /// Convert `ControlFlow` into inner error.
-    pub fn into_raw(self) -> E {
-        match self {
-            ControlFlow::Recoverable(e) => e,
-            ControlFlow::Incomplete(e) => e,
-            ControlFlow::Fatal(e) => e,
-        }
-    }
+/// parserc inner error kind.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum Kind {
+    #[error("none")]
+    None,
+    #[error("keyword")]
+    Keyword,
+    #[error("char")]
+    Char,
+    #[error("byte")]
+    Byte,
 }
 
-/// `Result` type that used by parser combinator.
-pub type Result<T, E> = std::result::Result<T, ControlFlow<E>>;
+/// Result type used by `parserc`.
+pub type Result<O, I, E> = std::result::Result<(O, I), ControlFlow<E>>;

@@ -1,362 +1,346 @@
 use std::{
-    fmt::{Debug, Display},
-    iter::Peekable,
-    str::CharIndices,
+    iter::{Copied, Enumerate},
+    slice,
+    str::{CharIndices, Chars},
 };
 
-/// A `span` is a reference to a fragment of the source code.
-#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+///! Abstraction of input source code.
+
+/// A region of source code,
+#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
 pub struct Span {
     pub offset: usize,
     pub len: usize,
-    pub lines: usize,
-    pub cols: usize,
 }
 
-impl From<(usize, usize, usize, usize)> for Span {
-    fn from(value: (usize, usize, usize, usize)) -> Self {
-        Self {
-            offset: value.0,
-            len: value.1,
-            lines: value.2,
-            cols: value.3,
-        }
-    }
-}
-
-impl Span {
-    /// Create a new `Span` instance.
-    ///
-    /// A length of `0` indicates that the span reference to the `eof`
-    pub fn new(offset: usize, len: usize, lines: usize, cols: usize) -> Self {
-        Self {
-            offset,
-            len,
-            lines,
-            cols,
-        }
-    }
-
-    /// Returns true if the `len` is `0`.
-    pub fn eof(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Returns the postion`(lines,cols)` referenced by this span.
-    pub fn position(&self) -> (usize, usize) {
-        (self.lines, self.cols)
-    }
-
-    /// Return the length of this span in bytes.
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Extend self to `other`'s start offset.
-    pub fn extend_to(self, other: Span) -> Span {
-        assert!(
-            !(self.offset > other.offset),
-            "extend_to: self.offset < other.offset."
-        );
-
+impl<I> From<I> for Span
+where
+    I: WithSpan,
+{
+    fn from(value: I) -> Self {
         Span {
-            offset: self.offset,
-            len: other.offset - self.offset,
-            lines: self.lines,
-            cols: self.cols,
-        }
-    }
-
-    /// Extend self to `other`'s end offset.
-    pub fn extend_to_inclusive(self, other: Span) -> Span {
-        assert!(
-            !(self.offset > other.offset),
-            "extend_to: self.offset < other.offset."
-        );
-
-        Span {
-            offset: self.offset,
-            len: other.offset + other.len - self.offset,
-            lines: self.lines,
-            cols: self.cols,
+            offset: value.start(),
+            len: value.len(),
         }
     }
 }
 
-impl Display for Span {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[Ln {}, Col {}]", self.lines, self.cols)
-    }
-}
-/// Get the slice of String represented by `span`.
-pub trait FromSpan<'a> {
-    fn from_span(&self, span: Span) -> &'a str;
+/// Convert self as a reference to [u8]
+pub trait AsBytes {
+    /// Convert the input type to a byte slice
+    fn as_bytes(&self) -> &[u8];
 }
 
-impl<'a> FromSpan<'a> for &'a str {
-    fn from_span(&self, span: Span) -> &'a str {
-        &self[span.offset..span.offset + span.len]
-    }
+/// Convert self as a reference to [`str`]
+pub trait AsStr {
+    /// Convert the input type to a str slice
+    fn as_str(&self) -> &str;
 }
 
-/// A seekable source code stream.
-#[derive(Debug)]
-pub struct ParseContext<'a> {
-    /// raw source code.
-    source: &'a str,
-    /// the char stream iterator.
-    iter: Peekable<CharIndices<'a>>,
-    /// current reading offset. start with '0'
-    offset: usize,
-    /// tracking the line no. start with '1'
-    lines: usize,
-    /// tracking the col no. start with `1`
-    cols: usize,
+/// The item type of the input sequence.
+pub trait Item: PartialEq {
+    fn len(&self) -> usize;
 }
 
-impl<'a> ParseContext<'a> {
-    /// Create a new `ParseContext` with additional arguments.
-    pub fn new(source: &'a str, offset: usize, lines: usize, cols: usize) -> Self {
-        Self {
-            source,
-            iter: source.char_indices().peekable(),
-            offset,
-            lines,
-            cols,
-        }
+impl Item for u8 {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        1
     }
 }
 
-impl<'a> From<&'a str> for ParseContext<'a> {
-    fn from(value: &'a str) -> Self {
-        Self {
-            source: value,
-            iter: value.char_indices().peekable(),
-            lines: 1,
-            cols: 1,
-            offset: 0,
-        }
+impl Item for char {
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len_utf8()
     }
 }
 
-impl<'a> From<&'a String> for ParseContext<'a> {
-    fn from(value: &'a String) -> Self {
-        Self::from(value.as_str())
-    }
-}
-
-impl<'a> ParseContext<'a> {
-    /// Return the [`Span`] of the next char.
+/// Parser consumes input type.
+pub trait Input {
+    /// The current input type is a sequence of that Item type.
     ///
-    /// Use [`eof`](Span::eof) fn to check if the eof is reached.
-    #[inline]
-    pub fn span(&mut self) -> Span {
-        let (_, span) = self.peek();
+    /// Example: u8 for &[u8] or char for &str
+    type Item: Item;
 
-        span
-    }
+    /// An iterator over the input type, producing the item
+    type Iter: Iterator<Item = Self::Item>;
 
-    /// Convert span into &str.
-    #[inline(always)]
-    pub fn as_str(&self, span: Span) -> &'a str {
-        &self.source[span.offset..span.offset + span.len]
-    }
+    /// An iterator over the input, producing the item and its byte position.
+    type IterIndices: Iterator<Item = (usize, Self::Item)>;
 
-    /// Seek to the start of the `span`.
+    /// Returns the total length of this input.
+    fn len(&self) -> usize;
+
+    /// Split the input into two at the given index.
     ///
-    /// A seek beyond the end of the stream is not allowed, will cause a panic.
+    /// Afterwards self contains elements [at, len), and the returned BytesMut contains elements [0, at).
+    fn split_to(&mut self, at: usize) -> Self;
+
+    /// Split the input into two at the given index.
+    ///
+    /// Afterwards self contains elements [0, at), and the returned `Self` contains elements [at, capacity).
+    fn split_off(&mut self, at: usize) -> Self;
+
+    fn iter(&self) -> Self::Iter;
+
+    fn iter_indices(&self) -> Self::IterIndices;
+}
+
+/// With additional span supports.
+pub trait WithSpan: Input {
+    /// Returns the start position of this input in the whole source code.
+    fn start(&self) -> usize;
+
+    /// Returns the region of this input in the whole source code.
     #[inline(always)]
-    pub fn seek<S>(&mut self, span: S)
-    where
-        Span: From<S>,
-    {
-        let span: Span = span.into();
-
-        assert!(span.offset <= self.source.len(), "seek: out of range.");
-        if self.offset != span.offset {
-            self.offset = span.offset;
-            self.cols = span.cols;
-            self.lines = span.lines;
-            self.iter = self.source[span.offset..].char_indices().peekable();
-        }
-    }
-
-    /// Returns a tuple where the first element is the reading offset, and second element is the total length of the source code.
-    #[inline]
-    pub fn size_hint(&mut self) -> (usize, usize) {
-        (self.offset, self.source.as_bytes().len())
-    }
-
-    /// Returns the unparsed length.
-    #[inline]
-    pub fn remaining(&mut self) -> usize {
-        self.source.as_bytes().len() - self.offset
-    }
-
-    /// Returns the unparsed length.
-    #[inline]
-    pub fn unparsed(&mut self) -> &str {
-        let unparsed = &self.source[self.offset..];
-
-        if unparsed.len() > 20 {
-            &unparsed[..20]
-        } else {
-            unparsed
-        }
-    }
-
-    /// peek up next char in the reading stream.
-    #[inline(always)]
-    pub fn peek(&mut self) -> (Option<char>, Span) {
-        if let Some((_, c)) = self.iter.peek() {
-            (
-                Some(*c),
-                Span {
-                    offset: self.offset,
-                    len: c.len_utf8(),
-                    lines: self.lines,
-                    cols: self.cols,
-                },
-            )
-        } else {
-            (
-                None,
-                Span {
-                    offset: self.offset,
-                    len: 0,
-                    lines: self.lines,
-                    cols: self.cols,
-                },
-            )
-        }
-    }
-
-    /// Returns the next character and its corresponding [`Span`].
-    #[inline(always)]
-    pub fn next(&mut self) -> (Option<char>, Span) {
-        if let Some((_, c)) = self.iter.next() {
-            let span = Span {
-                offset: self.offset,
-                len: c.len_utf8(),
-                lines: self.lines,
-                cols: self.cols,
-            };
-
-            // update tracking datas.
-            self.offset += c.len_utf8();
-            // is newline.
-            if c == '\n' {
-                self.lines += 1;
-                self.cols = 1;
-            } else {
-                self.cols += 1;
-            }
-
-            (Some(c), span)
-        } else {
-            (
-                None,
-                Span {
-                    offset: self.offset,
-                    len: 0,
-                    lines: self.lines,
-                    cols: self.cols,
-                },
-            )
-        }
+    fn span(&self) -> Span {
+        return Span {
+            offset: self.start(),
+            len: self.len(),
+        };
     }
 }
 
+impl<'a> Input for &'a str {
+    type Item = char;
+
+    type Iter = Chars<'a>;
+
+    type IterIndices = CharIndices<'a>;
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        str::len(self)
+    }
+
+    #[inline(always)]
+    fn split_to(&mut self, at: usize) -> Self {
+        let (first, last) = str::split_at(self, at);
+
+        *self = last;
+
+        first
+    }
+
+    #[inline(always)]
+    fn split_off(&mut self, at: usize) -> Self {
+        let (first, last) = str::split_at(self, at);
+
+        *self = first;
+
+        last
+    }
+    #[inline(always)]
+    fn iter(&self) -> Self::Iter {
+        self.chars()
+    }
+    #[inline(always)]
+    fn iter_indices(&self) -> Self::IterIndices {
+        self.char_indices()
+    }
+}
+
+impl<'a> AsBytes for &'a str {
+    #[inline(always)]
+    fn as_bytes(&self) -> &[u8] {
+        str::as_bytes(&self)
+    }
+}
+
+impl<'a> AsStr for &'a str {
+    #[inline(always)]
+    fn as_str(&self) -> &str {
+        self
+    }
+}
+
+impl<'a> Input for (usize, &'a str) {
+    type Item = char;
+
+    type Iter = Chars<'a>;
+
+    type IterIndices = CharIndices<'a>;
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        str::len(self.1)
+    }
+
+    #[inline(always)]
+    fn split_to(&mut self, at: usize) -> Self {
+        let (first, last) = str::split_at(self.1, at);
+
+        self.1 = last;
+        let offset = self.0;
+        self.0 += first.len();
+
+        (offset, first)
+    }
+
+    #[inline(always)]
+    fn split_off(&mut self, at: usize) -> Self {
+        let (first, last) = str::split_at(self.1, at);
+
+        self.1 = first;
+
+        (self.0 + first.len(), last)
+    }
+
+    #[inline(always)]
+    fn iter(&self) -> Self::Iter {
+        self.1.chars()
+    }
+
+    #[inline(always)]
+    fn iter_indices(&self) -> Self::IterIndices {
+        self.1.char_indices()
+    }
+}
+
+impl<'a> WithSpan for (usize, &'a str) {
+    #[inline(always)]
+    fn start(&self) -> usize {
+        self.0
+    }
+}
+
+impl<'a> AsBytes for (usize, &'a str) {
+    #[inline(always)]
+    fn as_bytes(&self) -> &[u8] {
+        self.1.as_bytes()
+    }
+}
+
+impl<'a> AsStr for (usize, &'a str) {
+    #[inline(always)]
+    fn as_str(&self) -> &str {
+        self.1
+    }
+}
+
+impl<'a> Input for &'a [u8] {
+    type Item = u8;
+
+    type Iter = Copied<slice::Iter<'a, u8>>;
+
+    type IterIndices = Enumerate<Self::Iter>;
+
+    fn len(&self) -> usize {
+        <[u8]>::len(*self)
+    }
+
+    fn split_to(&mut self, at: usize) -> Self {
+        let (first, last) = self.split_at(at);
+
+        *self = last;
+        first
+    }
+
+    fn split_off(&mut self, at: usize) -> Self {
+        let (first, last) = self.split_at(at);
+
+        *self = first;
+        last
+    }
+
+    fn iter(&self) -> Self::Iter {
+        <[u8]>::iter(*self).copied()
+    }
+
+    fn iter_indices(&self) -> Self::IterIndices {
+        self.iter().enumerate()
+    }
+}
+
+impl<'a> AsBytes for &'a [u8] {
+    fn as_bytes(&self) -> &[u8] {
+        self
+    }
+}
+
+impl<'a> Input for (usize, &'a [u8]) {
+    type Item = u8;
+
+    type Iter = Copied<slice::Iter<'a, u8>>;
+
+    type IterIndices = Enumerate<Self::Iter>;
+
+    fn len(&self) -> usize {
+        <[u8]>::len(self.1)
+    }
+
+    fn split_to(&mut self, at: usize) -> Self {
+        let (first, last) = self.1.split_at(at);
+
+        self.1 = last;
+        let offset = self.0;
+        self.0 += at;
+
+        (offset, first)
+    }
+
+    fn split_off(&mut self, at: usize) -> Self {
+        let (first, last) = self.1.split_at(at);
+
+        self.1 = first;
+
+        (self.0 + at, last)
+    }
+
+    fn iter(&self) -> Self::Iter {
+        <[u8]>::iter(self.1).copied()
+    }
+
+    fn iter_indices(&self) -> Self::IterIndices {
+        self.iter().enumerate()
+    }
+}
+
+impl<'a> AsBytes for (usize, &'a [u8]) {
+    fn as_bytes(&self) -> &[u8] {
+        self.1
+    }
+}
 #[cfg(test)]
 mod tests {
+    use crate::input::{AsBytes, AsStr, Span};
 
-    use std::panic::catch_unwind;
-
-    use super::*;
+    use super::{Input, WithSpan};
 
     #[test]
-    fn test_size_hint() {
-        assert_eq!(ParseContext::from("hello world").size_hint(), (0, 11));
-        assert_eq!(
-            ParseContext::from("你好").size_hint(),
-            (0, "你好".as_bytes().len())
-        );
+    fn test_split() {
+        assert_eq!("100".split_to(1), "1");
+
+        assert_eq!("100".split_off(1), "00");
     }
 
     #[test]
     fn test_span() {
-        assert_eq!(ParseContext::from("hello world").span().len(), 1);
-        assert!(ParseContext::from("").span().eof());
-        assert_eq!(ParseContext::from("你好").span().len(), '你'.len_utf8());
+        assert_eq!((10usize, "hello").span(), Span { offset: 10, len: 5 });
+
+        assert_eq!((10usize, "hello").split_to(2), (10usize, "he"));
+
+        assert_eq!((10usize, "hello").split_off(2), (12usize, "llo"));
+
+        assert_eq!(
+            (10usize, b"hello".as_slice()).split_to(2),
+            (10usize, b"he".as_slice())
+        );
+
+        assert_eq!(
+            (10usize, b"hello".as_slice()).split_off(2),
+            (12usize, b"llo".as_slice())
+        );
     }
 
     #[test]
-    fn test_seek() {
-        ParseContext::from("hello world").seek(Span {
-            offset: 11,
-            len: 0,
-            lines: 1,
-            cols: 12,
-        });
-
-        let r = catch_unwind(|| {
-            ParseContext::from("hello world").seek(Span {
-                offset: 12,
-                len: 0,
-                lines: 1,
-                cols: 12,
-            });
-        });
-
-        assert!(r.is_err());
+    fn test_as_bytes() {
+        assert_eq!((10usize, "hello").as_bytes(), "hello".as_bytes());
     }
 
     #[test]
-    fn test_input() {
-        let mut input = ParseContext::from("你好\nh");
-
-        assert_eq!(
-            input.next(),
-            (
-                Some('你'),
-                Span {
-                    offset: 0,
-                    len: 3,
-                    lines: 1,
-                    cols: 1
-                }
-            )
-        );
-
-        assert_eq!(input.next().0, Some('好'));
-        assert_eq!(input.next().0, Some('\n'));
-        assert_eq!(
-            input.next(),
-            (
-                Some('h'),
-                Span {
-                    offset: 7,
-                    len: 1,
-                    lines: 2,
-                    cols: 1
-                }
-            )
-        );
-
-        for _ in 0..10 {
-            assert_eq!(
-                input.next(),
-                (
-                    None,
-                    Span {
-                        offset: 8,
-                        len: 0,
-                        lines: 2,
-                        cols: 2
-                    }
-                )
-            );
-        }
+    fn test_as_str() {
+        assert_eq!((10usize, "hello").as_str(), "hello");
     }
 }
