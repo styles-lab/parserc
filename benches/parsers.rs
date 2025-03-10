@@ -138,3 +138,45 @@ mod parse {
         bool::into_parser().parse("true").unwrap();
     }
 }
+
+#[divan::bench_group]
+mod bench_take_while {
+    use parserc::{Kind, Parser, Result, take_till, take_while};
+
+    fn digit(input: &str) -> Result<&str, &str, Kind> {
+        take_while(|c: char| c.is_ascii_digit()).parse(input)
+    }
+
+    fn digit_bytes(input: &[u8]) -> Result<&[u8], &[u8], Kind> {
+        take_while(|c: u8| c.is_ascii_digit()).parse(input)
+    }
+
+    #[divan::bench]
+    fn bench_digit() {
+        digit("hello123").unwrap();
+    }
+
+    #[divan::bench]
+    fn bench_digit2() {
+        digit("12345566900goodluck").unwrap();
+    }
+
+    #[divan::bench]
+    fn bench_digit_bytes() {
+        digit_bytes(b"hello123").unwrap();
+    }
+
+    #[divan::bench]
+    fn bench_digit2_bytes() {
+        digit_bytes(b"12345566900goodluck").unwrap();
+    }
+
+    fn non_digit_bytes(input: &[u8]) -> Result<&[u8], &[u8], Kind> {
+        take_till(|c: u8| c.is_ascii_digit()).parse(input)
+    }
+
+    #[divan::bench]
+    fn bench_none_digit_bytes() {
+        non_digit_bytes(b"goodluck12345566900").unwrap();
+    }
+}

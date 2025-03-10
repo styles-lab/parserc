@@ -304,6 +304,41 @@ where
     }
 }
 
+/// Returns the longest input slice (if any) that matches the predicate.
+pub fn take_while<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
+where
+    I: Input,
+    E: From<Kind> + Debug,
+    F: FnMut(I::Item) -> bool,
+{
+    move |mut input: I| {
+        let mut iter = input.iter_indices();
+        let mut offset = 0;
+        loop {
+            if let Some((indices, next)) = iter.next() {
+                offset = indices;
+                if !cond(next) {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok((input.split_to(offset), input))
+    }
+}
+
+/// Returns the longest input slice (if any) till a predicate is met.
+pub fn take_till<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
+where
+    I: Input,
+    E: From<Kind> + Debug,
+    F: FnMut(I::Item) -> bool,
+{
+    take_while(move |c: I::Item| !cond(c))
+}
+
 /// This module provides utilities to parse rust types.
 pub mod rustypes {
     use super::*;
@@ -325,7 +360,9 @@ pub mod rustypes {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ControlFlow, Kind, Parser, Result, keyword, next, take_until};
+    use crate::{
+        ControlFlow, Kind, Parser, Result, keyword, next, take_till, take_until, take_while,
+    };
 
     use super::{Parse, ParserExt};
 
@@ -383,5 +420,25 @@ mod tests {
         assert_eq!(bool::parse("false"), Ok((false, "")));
 
         assert_eq!(bool::parse("true"), Ok((true, "")));
+    }
+
+    #[test]
+    fn test_take_while() {
+        fn digit(input: &str) -> Result<&str, &str, Kind> {
+            take_while(|c: char| c.is_ascii_digit()).parse(input)
+        }
+
+        assert_eq!(digit("123hello"), Ok(("123", "hello")));
+        assert_eq!(digit("hello123"), Ok(("", "hello123")));
+    }
+
+    #[test]
+    fn test_take_till() {
+        fn digit(input: &str) -> Result<&str, &str, Kind> {
+            take_till(|c: char| c.is_ascii_digit()).parse(input)
+        }
+
+        assert_eq!(digit("123hello"), Ok(("", "123hello")));
+        assert_eq!(digit("hello123"), Ok(("hello", "123")));
     }
 }
