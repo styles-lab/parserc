@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, marker::PhantomData};
 
 use memchr::memmem;
 
@@ -18,6 +18,41 @@ where
     fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error>;
 }
 
+/// All types that can be parsed from an input type should implement this trait.
+pub trait Parse<I>: Sized
+where
+    I: Input,
+{
+    /// Error kind of this parser type.
+    type Error: From<Kind> + Debug;
+
+    /// Parse input type as `Self`.
+    fn parse(input: I) -> Result<Self, I, Self::Error>;
+
+    /// Convert [`Parse`] into [`Parser`].
+    #[inline(always)]
+    fn into_parser() -> IntoParser<I, Self> {
+        IntoParser(Default::default(), Default::default())
+    }
+}
+
+/// A parser wrapped from [`Parse`] type.
+pub struct IntoParser<I, P>(PhantomData<I>, PhantomData<P>);
+
+impl<I, P> Parser<I> for IntoParser<I, P>
+where
+    P: Parse<I>,
+    I: Input,
+{
+    type Error = P::Error;
+    type Output = P;
+
+    #[inline(always)]
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        P::parse(input)
+    }
+}
+
 impl<O, I, E, F> Parser<I> for F
 where
     F: FnMut(I) -> Result<O, I, E>,
@@ -28,6 +63,7 @@ where
 
     type Error = E;
 
+    #[inline(always)]
     fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
         (*self)(input)
     }
@@ -131,31 +167,33 @@ where
 
 /// Recogonize a keyword
 #[inline]
-pub fn ensure_keyword<KW, I>(keyword: KW) -> impl Parser<I, Output = I, Error = Kind>
+pub fn ensure_keyword<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input + AsBytes,
     KW: Input + AsBytes,
+    E: From<Kind> + Debug,
 {
     move |mut input: I| {
         let len = keyword.len();
         if input.len() < len {
-            return Err(ControlFlow::Recovable(Kind::Keyword));
+            return Err(ControlFlow::Recovable(Kind::Keyword.into()));
         }
 
         if &input.as_bytes()[..len] == keyword.as_bytes() {
             return Ok((input.split_to(len), input));
         } else {
-            return Err(ControlFlow::Recovable(Kind::Keyword));
+            return Err(ControlFlow::Recovable(Kind::Keyword.into()));
         }
     }
 }
 
 /// Recognize next inpput item.
 #[inline(always)]
-pub fn ensure_next<C, I>(c: C) -> impl Parser<I, Output = I, Error = Kind>
+pub fn ensure_next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input<Item = C>,
     C: Item,
+    E: From<Kind> + Debug,
 {
     move |mut input: I| {
         if let Some(next) = input.iter().next() {
@@ -164,28 +202,48 @@ where
             }
         }
 
-        return Err(ControlFlow::Recovable(Kind::Char));
+        return Err(ControlFlow::Recovable(Kind::Char.into()));
     }
 }
 
 /// Returns the input slice up to the first occurrence of the pattern.
 #[inline(always)]
-pub fn take_until<KW, I>(keyword: KW) -> impl Parser<I, Output = I, Error = Kind>
+pub fn take_until<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input + AsBytes,
     KW: Input + AsBytes,
+    E: From<Kind> + Debug,
 {
     move |mut input: I| {
         let len = keyword.len();
         if input.len() < len {
-            return Err(ControlFlow::Recovable(Kind::TakeUntil));
+            return Err(ControlFlow::Recovable(Kind::TakeUntil.into()));
         }
 
         if let Some(offset) = memmem::find(input.as_bytes(), keyword.as_bytes()) {
             return Ok((input.split_to(offset), input));
         }
 
-        return Err(ControlFlow::Recovable(Kind::TakeUntil));
+        return Err(ControlFlow::Recovable(Kind::TakeUntil.into()));
+    }
+}
+
+/// This module provides utilities to parse rust types.
+pub mod rustypes {
+    use super::*;
+
+    impl<I> Parse<I> for bool
+    where
+        I: Input + AsBytes + Clone,
+    {
+        type Error = Kind;
+
+        fn parse(input: I) -> Result<Self, I, Self::Error> {
+            ensure_keyword("true")
+                .map(|_| true)
+                .or(ensure_keyword("false").map(|_| false))
+                .parse(input)
+        }
     }
 }
 
@@ -193,7 +251,7 @@ where
 mod tests {
     use crate::{ControlFlow, Kind, Parser, Result, ensure_keyword, ensure_next, take_until};
 
-    use super::ParserExt;
+    use super::{Parse, ParserExt};
 
     fn mock_recovable(_: &str) -> Result<&str, &str, Kind> {
         Err(ControlFlow::Recovable(Kind::None))
@@ -210,7 +268,7 @@ mod tests {
     #[test]
     fn test_ensure_keyword() {
         assert_eq!(
-            ensure_keyword("hello").parse("hello world"),
+            ensure_keyword::<&str, &str, Kind>("hello").parse("hello world"),
             Ok(("hello", " world"))
         );
 
@@ -223,7 +281,7 @@ mod tests {
     #[test]
     fn test_char() {
         assert_eq!(
-            ensure_next('你').parse("你 world  "),
+            ensure_next::<char, &str, Kind>('你').parse("你 world  "),
             Ok(("你", " world  "))
         );
     }
@@ -231,7 +289,7 @@ mod tests {
     #[test]
     fn test_byte() {
         assert_eq!(
-            ensure_next(b'<').parse(b"<world  ".as_slice()),
+            ensure_next::<u8, &[u8], Kind>(b'<').parse(b"<world  ".as_slice()),
             Ok((b"<".as_slice(), b"world  ".as_slice()))
         );
     }
@@ -239,19 +297,15 @@ mod tests {
     #[test]
     fn test_take_until() {
         assert_eq!(
-            take_until("<!--").parse(b"<world  <!--".as_slice()),
+            take_until::<&str, &[u8], Kind>("<!--").parse(b"<world  <!--".as_slice()),
             Ok((b"<world  ".as_slice(), b"<!--".as_slice()))
         );
     }
 
     #[test]
     fn test_map() {
-        let mut mock = ensure_keyword("true")
-            .map(|_| true)
-            .or(ensure_keyword("false").map(|_| false));
+        assert_eq!(bool::parse("false"), Ok((false, "")));
 
-        assert_eq!(mock.parse("false"), Ok((false, "")));
-
-        assert_eq!(mock.parse("true"), Ok((true, "")));
+        assert_eq!(bool::parse("true"), Ok((true, "")));
     }
 }

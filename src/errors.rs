@@ -30,6 +30,23 @@ where
     Recovable(E),
 }
 
+impl<E> ControlFlow<E>
+where
+    E: Debug,
+{
+    /// Convert `ControlFlow<E>` into `ControlFlow<E1>`
+    pub fn into_error<E1>(self) -> ControlFlow<E1>
+    where
+        E1: From<E> + Debug,
+    {
+        match self {
+            ControlFlow::Incomplete(needed) => ControlFlow::Incomplete(needed),
+            ControlFlow::Fatal(e) => ControlFlow::Fatal(e.into()),
+            ControlFlow::Recovable(e) => ControlFlow::Recovable(e.into()),
+        }
+    }
+}
+
 /// parserc inner error kind.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum Kind {
