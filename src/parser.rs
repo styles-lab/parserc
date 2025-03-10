@@ -91,6 +91,32 @@ where
     {
         Or(self, parser)
     }
+
+    /// Create a [`MapErr`] parser from this parser.
+    fn map_err<F>(self, map_err: F) -> MapErr<Self, F> {
+        MapErr(self, map_err)
+    }
+
+    /// Create a [`MapControlFlow`] parser from this parser.
+    fn map_control_flow<F>(self, f: F) -> MapControlFlow<Self, F> {
+        MapControlFlow(self, f)
+    }
+
+    /// Convert [`ControlFlow::Recovable`] to [`ControlFlow::Fatal`]
+    fn fatal(self) -> impl Parser<I, Output = Self::Output, Error = Self::Error> {
+        self.map_control_flow(|c| match c {
+            ControlFlow::Incomplete(needed) => ControlFlow::Incomplete(needed),
+            ControlFlow::Recovable(e) | ControlFlow::Fatal(e) => ControlFlow::Fatal(e),
+        })
+    }
+
+    /// Convert [`ControlFlow::Fatal`] to [`ControlFlow::Recovable`]
+    fn recovable(self) -> impl Parser<I, Output = Self::Output, Error = Self::Error> {
+        self.map_control_flow(|c| match c {
+            ControlFlow::Incomplete(needed) => ControlFlow::Incomplete(needed),
+            ControlFlow::Recovable(e) | ControlFlow::Fatal(e) => ControlFlow::Fatal(e),
+        })
+    }
 }
 
 impl<I, P> ParserExt<I> for P
@@ -98,6 +124,56 @@ where
     I: Input,
     P: Parser<I>,
 {
+}
+
+/// A parser that changes the [`ControlFlow`] from the inner parser to a new one.
+///
+/// This combinator does not change the real error type.
+pub struct MapControlFlow<P, F>(P, F);
+
+impl<I, P, F, E> Parser<I> for MapControlFlow<P, F>
+where
+    P: Parser<I>,
+    E: From<Kind> + Debug,
+    F: FnMut(ControlFlow<P::Error>) -> ControlFlow<E>,
+    I: Input,
+{
+    type Error = E;
+    type Output = P::Output;
+
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        match self.0.parse(input) {
+            Ok(v) => Ok(v),
+            Err(c) => Err((self.1)(c)),
+        }
+    }
+}
+
+/// A parser that convert error `E` returns by inner parser to `E1`.
+///
+/// This combinator does not change the [`ControlFlow`]
+pub struct MapErr<P, F>(P, F);
+
+impl<I, P, F, E> Parser<I> for MapErr<P, F>
+where
+    P: Parser<I>,
+    E: From<Kind> + Debug,
+    F: FnMut(P::Error) -> E,
+    I: Input,
+{
+    type Error = E;
+    type Output = P::Output;
+
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        match self.0.parse(input) {
+            Ok(v) => Ok(v),
+            Err(c) => match c {
+                ControlFlow::Incomplete(needed) => Err(ControlFlow::Incomplete(needed)),
+                ControlFlow::Fatal(e) => Err(ControlFlow::Fatal((self.1)(e))),
+                ControlFlow::Recovable(e) => Err(ControlFlow::Recovable((self.1)(e))),
+            },
+        }
+    }
 }
 
 /// Tests two parsers one by one until one succeeds or all failed.
@@ -167,7 +243,7 @@ where
 
 /// Recogonize a keyword
 #[inline]
-pub fn ensure_keyword<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
+pub fn keyword<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input + AsBytes,
     KW: Input + AsBytes,
@@ -189,7 +265,7 @@ where
 
 /// Recognize next inpput item.
 #[inline(always)]
-pub fn ensure_next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
+pub fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input<Item = C>,
     C: Item,
@@ -239,9 +315,9 @@ pub mod rustypes {
         type Error = Kind;
 
         fn parse(input: I) -> Result<Self, I, Self::Error> {
-            ensure_keyword("true")
+            keyword("true")
                 .map(|_| true)
-                .or(ensure_keyword("false").map(|_| false))
+                .or(keyword("false").map(|_| false))
                 .parse(input)
         }
     }
@@ -249,7 +325,7 @@ pub mod rustypes {
 
 #[cfg(test)]
 mod tests {
-    use crate::{ControlFlow, Kind, Parser, Result, ensure_keyword, ensure_next, take_until};
+    use crate::{ControlFlow, Kind, Parser, Result, keyword, next, take_until};
 
     use super::{Parse, ParserExt};
 
@@ -268,12 +344,12 @@ mod tests {
     #[test]
     fn test_ensure_keyword() {
         assert_eq!(
-            ensure_keyword::<&str, &str, Kind>("hello").parse("hello world"),
+            keyword::<&str, &str, Kind>("hello").parse("hello world"),
             Ok(("hello", " world"))
         );
 
         assert_eq!(
-            ensure_keyword("hello").parse(" world  "),
+            keyword("hello").parse(" world  "),
             Err(ControlFlow::Recovable(Kind::Keyword))
         );
     }
@@ -281,7 +357,7 @@ mod tests {
     #[test]
     fn test_char() {
         assert_eq!(
-            ensure_next::<char, &str, Kind>('你').parse("你 world  "),
+            next::<char, &str, Kind>('你').parse("你 world  "),
             Ok(("你", " world  "))
         );
     }
@@ -289,7 +365,7 @@ mod tests {
     #[test]
     fn test_byte() {
         assert_eq!(
-            ensure_next::<u8, &[u8], Kind>(b'<').parse(b"<world  ".as_slice()),
+            next::<u8, &[u8], Kind>(b'<').parse(b"<world  ".as_slice()),
             Ok((b"<".as_slice(), b"world  ".as_slice()))
         );
     }
