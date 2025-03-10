@@ -176,7 +176,7 @@ mod bench_take_while {
     }
 
     #[divan::bench]
-    fn bench_none_digit_bytes() {
+    fn bench_non_digit_bytes() {
         non_digit_bytes(b"goodluck12345566900").unwrap();
     }
 }
