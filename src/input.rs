@@ -1,29 +1,10 @@
+//! Abstraction of input source code.
+
 use std::{
     iter::{Copied, Enumerate},
     slice,
     str::{CharIndices, Chars},
 };
-
-///! Abstraction of input source code.
-
-/// A region of source code,
-#[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
-pub struct Span {
-    pub offset: usize,
-    pub len: usize,
-}
-
-impl<I> From<I> for Span
-where
-    I: WithSpan,
-{
-    fn from(value: I) -> Self {
-        Span {
-            offset: value.start(),
-            len: value.len(),
-        }
-    }
-}
 
 /// Convert self as a reference to [u8]
 pub trait AsBytes {
@@ -87,21 +68,6 @@ pub trait Input {
     fn iter_indices(&self) -> Self::IterIndices;
 }
 
-/// With additional span supports.
-pub trait WithSpan: Input {
-    /// Returns the start position of this input in the whole source code.
-    fn start(&self) -> usize;
-
-    /// Returns the region of this input in the whole source code.
-    #[inline(always)]
-    fn span(&self) -> Span {
-        return Span {
-            offset: self.start(),
-            len: self.len(),
-        };
-    }
-}
-
 impl<'a> Input for &'a str {
     type Item = char;
 
@@ -155,70 +121,6 @@ impl<'a> AsStr for &'a str {
     }
 }
 
-impl<'a> Input for (usize, &'a str) {
-    type Item = char;
-
-    type Iter = Chars<'a>;
-
-    type IterIndices = CharIndices<'a>;
-
-    #[inline(always)]
-    fn len(&self) -> usize {
-        str::len(self.1)
-    }
-
-    #[inline(always)]
-    fn split_to(&mut self, at: usize) -> Self {
-        let (first, last) = str::split_at(self.1, at);
-
-        self.1 = last;
-        let offset = self.0;
-        self.0 += first.len();
-
-        (offset, first)
-    }
-
-    #[inline(always)]
-    fn split_off(&mut self, at: usize) -> Self {
-        let (first, last) = str::split_at(self.1, at);
-
-        self.1 = first;
-
-        (self.0 + first.len(), last)
-    }
-
-    #[inline(always)]
-    fn iter(&self) -> Self::Iter {
-        self.1.chars()
-    }
-
-    #[inline(always)]
-    fn iter_indices(&self) -> Self::IterIndices {
-        self.1.char_indices()
-    }
-}
-
-impl<'a> WithSpan for (usize, &'a str) {
-    #[inline(always)]
-    fn start(&self) -> usize {
-        self.0
-    }
-}
-
-impl<'a> AsBytes for (usize, &'a str) {
-    #[inline(always)]
-    fn as_bytes(&self) -> &[u8] {
-        self.1.as_bytes()
-    }
-}
-
-impl<'a> AsStr for (usize, &'a str) {
-    #[inline(always)]
-    fn as_str(&self) -> &str {
-        self.1
-    }
-}
-
 impl<'a> Input for &'a [u8] {
     type Item = u8;
 
@@ -259,54 +161,161 @@ impl<'a> AsBytes for &'a [u8] {
     }
 }
 
-impl<'a> Input for (usize, &'a [u8]) {
-    type Item = u8;
+/// Inputs with span supports.
+pub mod span {
+    use super::*;
 
-    type Iter = Copied<slice::Iter<'a, u8>>;
-
-    type IterIndices = Enumerate<Self::Iter>;
-
-    fn len(&self) -> usize {
-        <[u8]>::len(self.1)
+    /// A region of source code,
+    #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+    pub struct Span {
+        pub offset: usize,
+        pub len: usize,
     }
 
-    fn split_to(&mut self, at: usize) -> Self {
-        let (first, last) = self.1.split_at(at);
-
-        self.1 = last;
-        let offset = self.0;
-        self.0 += at;
-
-        (offset, first)
+    impl<I> From<I> for Span
+    where
+        I: WithSpan,
+    {
+        fn from(value: I) -> Self {
+            Span {
+                offset: value.start(),
+                len: value.len(),
+            }
+        }
     }
 
-    fn split_off(&mut self, at: usize) -> Self {
-        let (first, last) = self.1.split_at(at);
+    /// With additional span supports.
+    pub trait WithSpan: Input {
+        /// Returns the start position of this input in the whole source code.
+        fn start(&self) -> usize;
 
-        self.1 = first;
-
-        (self.0 + at, last)
+        /// Returns the region of this input in the whole source code.
+        #[inline(always)]
+        fn span(&self) -> Span {
+            return Span {
+                offset: self.start(),
+                len: self.len(),
+            };
+        }
     }
 
-    fn iter(&self) -> Self::Iter {
-        <[u8]>::iter(self.1).copied()
+    impl<'a> Input for (usize, &'a str) {
+        type Item = char;
+
+        type Iter = Chars<'a>;
+
+        type IterIndices = CharIndices<'a>;
+
+        #[inline(always)]
+        fn len(&self) -> usize {
+            str::len(self.1)
+        }
+
+        #[inline(always)]
+        fn split_to(&mut self, at: usize) -> Self {
+            let (first, last) = str::split_at(self.1, at);
+
+            self.1 = last;
+            let offset = self.0;
+            self.0 += first.len();
+
+            (offset, first)
+        }
+
+        #[inline(always)]
+        fn split_off(&mut self, at: usize) -> Self {
+            let (first, last) = str::split_at(self.1, at);
+
+            self.1 = first;
+
+            (self.0 + first.len(), last)
+        }
+
+        #[inline(always)]
+        fn iter(&self) -> Self::Iter {
+            self.1.chars()
+        }
+
+        #[inline(always)]
+        fn iter_indices(&self) -> Self::IterIndices {
+            self.1.char_indices()
+        }
     }
 
-    fn iter_indices(&self) -> Self::IterIndices {
-        self.iter().enumerate()
+    impl<'a> WithSpan for (usize, &'a str) {
+        #[inline(always)]
+        fn start(&self) -> usize {
+            self.0
+        }
+    }
+
+    impl<'a> AsBytes for (usize, &'a str) {
+        #[inline(always)]
+        fn as_bytes(&self) -> &[u8] {
+            self.1.as_bytes()
+        }
+    }
+
+    impl<'a> AsStr for (usize, &'a str) {
+        #[inline(always)]
+        fn as_str(&self) -> &str {
+            self.1
+        }
+    }
+
+    impl<'a> Input for (usize, &'a [u8]) {
+        type Item = u8;
+
+        type Iter = Copied<slice::Iter<'a, u8>>;
+
+        type IterIndices = Enumerate<Self::Iter>;
+
+        fn len(&self) -> usize {
+            <[u8]>::len(self.1)
+        }
+
+        fn split_to(&mut self, at: usize) -> Self {
+            let (first, last) = self.1.split_at(at);
+
+            self.1 = last;
+            let offset = self.0;
+            self.0 += at;
+
+            (offset, first)
+        }
+
+        fn split_off(&mut self, at: usize) -> Self {
+            let (first, last) = self.1.split_at(at);
+
+            self.1 = first;
+
+            (self.0 + at, last)
+        }
+
+        fn iter(&self) -> Self::Iter {
+            <[u8]>::iter(self.1).copied()
+        }
+
+        fn iter_indices(&self) -> Self::IterIndices {
+            self.iter().enumerate()
+        }
+    }
+
+    impl<'a> AsBytes for (usize, &'a [u8]) {
+        fn as_bytes(&self) -> &[u8] {
+            self.1
+        }
     }
 }
 
-impl<'a> AsBytes for (usize, &'a [u8]) {
-    fn as_bytes(&self) -> &[u8] {
-        self.1
-    }
-}
 #[cfg(test)]
 mod tests {
-    use crate::input::{AsBytes, AsStr, Span};
+    use crate::{
+        input::{AsBytes, AsStr},
+        span::*,
+    };
 
-    use super::{Input, WithSpan};
+    use super::Input;
 
     #[test]
     fn test_split() {

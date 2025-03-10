@@ -15,12 +15,12 @@ where
     type Error: From<Kind> + Debug;
 
     /// A parser takes in input type, and returns a Result containing either the remaining input and the output value, or an error.
-    fn parse(self, input: I) -> Result<Self::Output, I, Self::Error>;
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error>;
 }
 
 impl<O, I, E, F> Parser<I> for F
 where
-    F: FnOnce(I) -> Result<O, I, E>,
+    F: FnMut(I) -> Result<O, I, E>,
     E: From<Kind> + Debug,
     I: Input,
 {
@@ -28,8 +28,8 @@ where
 
     type Error = E;
 
-    fn parse(self, input: I) -> Result<Self::Output, I, Self::Error> {
-        (self)(input)
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        (*self)(input)
     }
 }
 
@@ -38,9 +38,22 @@ pub trait ParserExt<I>: Parser<I> + Sized
 where
     I: Input,
 {
-    /// Create an [`OptParser`] from this parser.
-    fn ok(self) -> OptParser<Self> {
-        OptParser(self)
+    /// Create an [`Optional`] parser from this parser.
+    fn ok(self) -> Optional<Self> {
+        Optional(self)
+    }
+
+    /// Create a [`Map`] parser from this parser.
+    fn map<F>(self, map: F) -> Map<Self, F> {
+        Map(self, map)
+    }
+
+    /// Create a [`Map`] parser from this parser.
+    fn or<R>(self, parser: R) -> Or<Self, R>
+    where
+        R: Parser<I, Error = Self::Error, Output = Self::Output>,
+    {
+        Or(self, parser)
     }
 }
 
@@ -51,10 +64,53 @@ where
 {
 }
 
-/// A parser that convert [`recovable`](super::ControlFlow::Recovable) error from inner parser into [`None`] value.
-pub struct OptParser<P>(P);
+/// Tests two parsers one by one until one succeeds or all failed.
+pub struct Or<L, R>(L, R);
 
-impl<I, P> Parser<I> for OptParser<P>
+impl<I, L, R, O, E> Parser<I> for Or<L, R>
+where
+    L: Parser<I, Error = E, Output = O>,
+    R: Parser<I, Error = E, Output = O>,
+    E: From<Kind> + Debug,
+    I: Input + Clone,
+{
+    type Error = E;
+    type Output = O;
+
+    #[inline(always)]
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        match self.0.parse(input.clone()) {
+            Ok(v) => Ok(v),
+            Err(_) => self.1.parse(input),
+        }
+    }
+}
+
+/// A parser that convert inner parser's output to another type.
+pub struct Map<P, F>(P, F);
+
+impl<I, P, F, O> Parser<I> for Map<P, F>
+where
+    P: Parser<I>,
+    I: Input,
+    F: FnMut(P::Output) -> O,
+{
+    type Error = P::Error;
+    type Output = O;
+
+    #[inline(always)]
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        match self.0.parse(input) {
+            Ok((o, input)) => Ok(((self.1)(o), input)),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+/// A parser that convert [`recovable`](super::ControlFlow::Recovable) error from inner parser into [`None`] value.
+pub struct Optional<P>(P);
+
+impl<I, P> Parser<I> for Optional<P>
 where
     P: Parser<I>,
     I: Input + Clone,
@@ -63,7 +119,7 @@ where
     type Output = Option<P::Output>;
 
     #[inline(always)]
-    fn parse(self, input: I) -> Result<Self::Output, I, Self::Error> {
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
         match self.0.parse(input.clone()) {
             Err(ControlFlow::Recovable(_)) => return Ok((None, input)),
             Err(ControlFlow::Incomplete(_)) => return Ok((None, input)),
@@ -186,5 +242,16 @@ mod tests {
             take_until("<!--").parse(b"<world  <!--".as_slice()),
             Ok((b"<world  ".as_slice(), b"<!--".as_slice()))
         );
+    }
+
+    #[test]
+    fn test_map() {
+        let mut mock = ensure_keyword("true")
+            .map(|_| true)
+            .or(ensure_keyword("false").map(|_| false));
+
+        assert_eq!(mock.parse("false"), Ok((false, "")));
+
+        assert_eq!(mock.parse("true"), Ok((true, "")));
     }
 }
