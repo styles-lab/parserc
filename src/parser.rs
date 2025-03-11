@@ -265,7 +265,7 @@ where
 
 /// Recognize next inpput item.
 #[inline(always)]
-pub fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
+pub const fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input<Item = C>,
     C: Item,
@@ -305,19 +305,41 @@ where
 }
 
 /// Returns the longest input slice (if any) that matches the predicate.
-pub fn take_while<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
+#[inline(always)]
+pub fn take_while<I, E, F>(cond: F) -> TakeWhile<I, F, E>
 where
     I: Input,
     E: From<Kind> + Debug,
     F: FnMut(I::Item) -> bool,
 {
-    move |mut input: I| {
+    TakeWhile {
+        cond,
+        _marker: Default::default(),
+    }
+}
+
+pub struct TakeWhile<I, F, E> {
+    cond: F,
+    _marker: PhantomData<(I, E)>,
+}
+
+impl<I, F, E> Parser<I> for TakeWhile<I, F, E>
+where
+    I: Input,
+    E: From<Kind> + Debug,
+    F: FnMut(I::Item) -> bool,
+{
+    type Error = E;
+
+    type Output = I;
+
+    fn parse(&mut self, mut input: I) -> Result<I, I, Self::Error> {
         let mut iter = input.iter_indices();
         let mut offset = 0;
         loop {
             if let Some((indices, next)) = iter.next() {
                 offset = indices;
-                if !cond(next) {
+                if !(self.cond)(next) {
                     break;
                 }
             } else {
@@ -330,6 +352,7 @@ where
 }
 
 /// Returns the longest input slice (if any) till a predicate is met.
+#[inline(always)]
 pub fn take_till<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,

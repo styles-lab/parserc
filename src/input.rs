@@ -53,6 +53,12 @@ pub trait Input {
     /// Returns the total length of this input.
     fn len(&self) -> usize;
 
+    /// Returns true if this input length == 0.
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Split the input into two at the given index.
     ///
     /// Afterwards self contains elements [at, len), and the returned BytesMut contains elements [0, at).
