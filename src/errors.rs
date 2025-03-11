@@ -48,7 +48,7 @@ where
 }
 
 /// parserc inner error kind.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[derive(Debug, thiserror::Error, PartialEq, Clone)]
 pub enum Kind {
     #[error("none")]
     None,
