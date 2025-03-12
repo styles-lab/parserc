@@ -19,7 +19,7 @@ pub trait AsStr {
 }
 
 /// The item type of the input sequence.
-pub trait Item: PartialEq {
+pub trait Item: PartialEq + Clone + Copy {
     fn len(&self) -> usize;
 }
 

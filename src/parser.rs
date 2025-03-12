@@ -306,42 +306,22 @@ where
 
 /// Returns the longest input slice (if any) that matches the predicate.
 #[inline(always)]
-pub fn take_while<I, E, F>(cond: F) -> TakeWhile<I, F, E>
+pub fn take_while<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,
     E: From<Kind> + Debug,
     F: FnMut(I::Item) -> bool,
 {
-    TakeWhile {
-        cond,
-        _marker: Default::default(),
-    }
-}
-
-pub struct TakeWhile<I, F, E> {
-    cond: F,
-    _marker: PhantomData<(I, E)>,
-}
-
-impl<I, F, E> Parser<I> for TakeWhile<I, F, E>
-where
-    I: Input,
-    E: From<Kind> + Debug,
-    F: FnMut(I::Item) -> bool,
-{
-    type Error = E;
-
-    type Output = I;
-
-    fn parse(&mut self, mut input: I) -> Result<I, I, Self::Error> {
-        let mut iter = input.iter_indices();
+    move |mut input: I| {
+        let mut iter = input.iter();
         let mut offset = 0;
         loop {
-            if let Some((indices, next)) = iter.next() {
-                offset = indices;
-                if !(self.cond)(next) {
+            if let Some(next) = iter.next() {
+                if !(cond)(next) {
                     break;
                 }
+
+                offset += next.len();
             } else {
                 break;
             }
@@ -463,5 +443,13 @@ mod tests {
 
         assert_eq!(digit("123hello"), Ok(("", "123hello")));
         assert_eq!(digit("hello123"), Ok(("hello", "123")));
+    }
+
+    #[test]
+    fn test_take_till1() {
+        assert_eq!(
+            take_till::<&[u8], Kind, _>(|c| c == b'<').parse(b"\n".as_slice()),
+            Ok((b"\n".as_slice(), b"".as_slice())),
+        );
     }
 }
