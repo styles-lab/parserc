@@ -173,9 +173,38 @@ pub mod span {
 
     /// A region of source code,
     #[derive(Debug, PartialEq, PartialOrd, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Span {
         pub offset: usize,
         pub len: usize,
+    }
+
+    impl Span {
+        /// Extend self to `other`'s start offset.
+        pub fn extend_to(self, other: Span) -> Span {
+            assert!(
+                !(self.offset > other.offset),
+                "extend_to: self.offset < other.offset."
+            );
+
+            Span {
+                offset: self.offset,
+                len: other.offset - self.offset,
+            }
+        }
+
+        /// Extend self to `other`'s end offset.
+        pub fn extend_to_inclusive(self, other: Span) -> Span {
+            assert!(
+                !(self.offset > other.offset),
+                "extend_to: self.offset < other.offset."
+            );
+
+            Span {
+                offset: self.offset,
+                len: other.offset + other.len - self.offset,
+            }
+        }
     }
 
     impl<I> From<I> for Span
@@ -310,6 +339,13 @@ pub mod span {
     impl<'a> AsBytes for (usize, &'a [u8]) {
         fn as_bytes(&self) -> &[u8] {
             self.1
+        }
+    }
+
+    impl<'a> WithSpan for (usize, &'a [u8]) {
+        #[inline(always)]
+        fn start(&self) -> usize {
+            self.0
         }
     }
 }
