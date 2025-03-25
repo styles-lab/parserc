@@ -94,7 +94,11 @@ where
     }
 
     /// Create a [`MapErr`] parser from this parser.
-    fn map_err<F>(self, map_err: F) -> MapErr<Self, F> {
+    fn map_err<F, E>(self, map_err: F) -> MapErr<Self, F>
+    where
+        F: FnMut(I, Self::Error) -> E,
+        E: From<Kind> + Debug,
+    {
         MapErr(self, map_err)
     }
 
@@ -159,19 +163,19 @@ impl<I, P, F, E> Parser<I> for MapErr<P, F>
 where
     P: Parser<I>,
     E: From<Kind> + Debug,
-    F: FnMut(P::Error) -> E,
-    I: Input,
+    F: FnMut(I, P::Error) -> E,
+    I: Input + Clone,
 {
     type Error = E;
     type Output = P::Output;
 
     fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
-        match self.0.parse(input) {
+        match self.0.parse(input.clone()) {
             Ok(v) => Ok(v),
             Err(c) => match c {
                 ControlFlow::Incomplete(needed) => Err(ControlFlow::Incomplete(needed)),
-                ControlFlow::Fatal(e) => Err(ControlFlow::Fatal((self.1)(e))),
-                ControlFlow::Recovable(e) => Err(ControlFlow::Recovable((self.1)(e))),
+                ControlFlow::Fatal(e) => Err(ControlFlow::Fatal((self.1)(input, e))),
+                ControlFlow::Recovable(e) => Err(ControlFlow::Recovable((self.1)(input, e))),
             },
         }
     }
