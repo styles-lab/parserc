@@ -85,8 +85,9 @@ where
     }
 
     /// Create a [`Map`] parser from this parser.
-    fn or<R>(self, parser: R) -> Or<Self, R>
+    fn or<R>(self, parser: R) -> impl Parser<I, Error = Self::Error, Output = Self::Output>
     where
+        I: Clone,
         R: Parser<I, Error = Self::Error, Output = Self::Output>,
     {
         Or(self, parser)
