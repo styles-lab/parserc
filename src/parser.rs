@@ -37,6 +37,7 @@ where
 }
 
 /// A parser wrapped from [`Parse`] type.
+#[derive(Debug, Clone, Copy)]
 pub struct IntoParser<I, P>(PhantomData<I>, PhantomData<P>);
 
 impl<I, P> Parser<I> for IntoParser<I, P>
@@ -268,7 +269,7 @@ where
     }
 }
 
-/// Recognize next inpput item.
+/// Recognize next input item.
 #[inline(always)]
 pub const fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
 where
@@ -283,7 +284,26 @@ where
             }
         }
 
-        return Err(ControlFlow::Recovable(Kind::Char.into()));
+        return Err(ControlFlow::Recovable(Kind::Next.into()));
+    }
+}
+
+/// Recognize next inpput item.
+#[inline(always)]
+pub const fn satisfy<F, I, E>(mut predicate: F) -> impl Parser<I, Output = I, Error = E>
+where
+    F: FnMut(I::Item) -> bool,
+    I: Input,
+    E: From<Kind> + Debug,
+{
+    move |mut input: I| {
+        if let Some(next) = input.iter().next() {
+            if predicate(next) {
+                return Ok((input.split_to(next.len()), input));
+            }
+        }
+
+        return Err(ControlFlow::Recovable(Kind::Satisfy.into()));
     }
 }
 

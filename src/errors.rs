@@ -54,12 +54,12 @@ pub enum Kind {
     None,
     #[error("keyword")]
     Keyword,
-    #[error("char")]
-    Char,
-    #[error("byte")]
-    Byte,
+    #[error("next")]
+    Next,
     #[error("take_until")]
     TakeUntil,
+    #[error("satisfy")]
+    Satisfy,
 }
 
 /// Result type used by `parserc`.
