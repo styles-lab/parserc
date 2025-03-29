@@ -199,7 +199,8 @@ where
     fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
         match self.0.parse(input.clone()) {
             Ok(v) => Ok(v),
-            Err(_) => self.1.parse(input),
+            Err(ControlFlow::Recovable(_)) => self.1.parse(input),
+            Err(err) => return Err(err),
         }
     }
 }
@@ -271,7 +272,7 @@ where
 
 /// Recognize next input item.
 #[inline(always)]
-pub const fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E>
+pub const fn next<C, I, E>(c: C) -> impl Parser<I, Output = I, Error = E> + Clone
 where
     I: Input<Item = C>,
     C: Item,
