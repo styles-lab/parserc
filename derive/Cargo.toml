@@ -8,8 +8,8 @@ repository = "https://github.com/styles-lab/parserc"
 version = "0.1.0"
 
 [dependencies]
+proc-macro2 = "^1"
 quote = "^1"
-syn = "^2"
-
+syn = {version = "^2", features = ["full"]}
 [lib]
 proc-macro = true

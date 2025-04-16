@@ -1,7 +1,169 @@
 use proc_macro::TokenStream;
-use quote::quote;
+use proc_macro2::Span;
+use quote::{ToTokens, quote};
+use syn::{
+    Error, ExprPath, Ident, Item, ItemEnum, ItemStruct, Token, parse::Parse, parse_macro_input,
+    punctuated::Punctuated, spanned::Spanned,
+};
 
-#[proc_macro_derive(Parse, attributes(helper))]
-pub fn derive_helper_attr(_: TokenStream) -> TokenStream {
-    quote! {}.into()
+mod kw {
+    use syn::custom_keyword;
+
+    custom_keyword!(error);
+    custom_keyword!(input);
+}
+
+#[allow(unused)]
+struct InputAttr {
+    pub keyword: kw::input,
+    pub eq_token: Token![=],
+    pub ty: Ident,
+}
+
+impl Parse for InputAttr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let keyword = input.parse::<kw::input>()?;
+        let eq_token = input.parse::<Token![=]>()?;
+        let ty = input.parse()?;
+
+        Ok(Self {
+            keyword,
+            eq_token,
+            ty,
+        })
+    }
+}
+#[allow(unused)]
+struct ErrAttr {
+    pub keyword: kw::error,
+    pub eq_token: Token![=],
+    pub ty: ExprPath,
+}
+
+impl Parse for ErrAttr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let keyword = input.parse::<kw::error>()?;
+        let eq_token = input.parse::<Token![=]>()?;
+        let ty = input.parse()?;
+
+        Ok(Self {
+            keyword,
+            eq_token,
+            ty,
+        })
+    }
+}
+#[allow(unused)]
+enum Attr {
+    Err(ErrAttr),
+    Input(InputAttr),
+}
+
+impl Parse for Attr {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        if input.peek(kw::error) {
+            Ok(Attr::Err(input.parse()?))
+        } else if input.peek(kw::input) {
+            Ok(Attr::Input(input.parse()?))
+        } else {
+            Err(Error::new(input.span(), "expect attr: error/input,..."))
+        }
+    }
+}
+
+#[allow(unused)]
+struct Attrs(Span, Punctuated<Attr, Token![,]>);
+
+impl Parse for Attrs {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let span = input.span();
+        let mut punct = Punctuated::new();
+
+        loop {
+            punct.push_value(Attr::parse(input)?);
+            if let Some(comma) = input.parse::<Option<Token![,]>>()? {
+                punct.push_punct(comma);
+                continue;
+            }
+
+            break;
+        }
+
+        Ok(Self(span, punct))
+    }
+}
+
+impl Attrs {
+    fn generic_input(&self) -> Option<proc_macro2::TokenStream> {
+        for attr in self.1.iter() {
+            if let Attr::Input(input) = attr {
+                return Some(input.ty.to_token_stream());
+            }
+        }
+
+        None
+    }
+
+    fn error_type(&self) -> Option<proc_macro2::TokenStream> {
+        for attr in self.1.iter() {
+            if let Attr::Err(err) = attr {
+                return Some(err.ty.to_token_stream());
+            }
+        }
+
+        None
+    }
+}
+
+fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
+    let generic_input = if let Some(generic_input) = attr.generic_input() {
+        generic_input
+    } else {
+        return Error::new(attr.0, "Requires attribute `input=...` to be specified")
+            .into_compile_error()
+            .into();
+    };
+
+    let err_type = if let Some(err_type) = attr.error_type() {
+        err_type
+    } else {
+        return Error::new(attr.0, "Requires attribute `error=...` to be specified")
+            .into_compile_error()
+            .into();
+    };
+
+    let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
+    let ident = &item.ident;
+
+    quote! {
+        #item
+
+        impl #impl_generic parserc::Parse<#generic_input> for #ident #ty_generic #where_clause {
+            type Error = #err_type;
+
+            fn parse(input: #generic_input) -> parserc::Result<Self, #generic_input, Self::Error> {
+                todo!()
+            }
+        }
+    }
+    .into()
+}
+
+fn derive_enum_item(_: Attrs, item: ItemEnum) -> TokenStream {
+    item.into_token_stream().into()
+}
+
+#[proc_macro_attribute]
+pub fn derive_parse(attr: TokenStream, input: TokenStream) -> TokenStream {
+    let attrs = parse_macro_input!(attr as Attrs);
+
+    let item = parse_macro_input!(input as Item);
+
+    match item {
+        Item::Enum(item) => derive_enum_item(attrs, item),
+        Item::Struct(item) => derive_struct_item(attrs, item),
+        _ => Error::new(item.span(), "derive_parse: unsupport item")
+            .into_compile_error()
+            .into(),
+    }
 }
