@@ -1,0 +1,15 @@
+[package]
+description = "proc-macro for parserc."
+documentation = "https://docs.rs/parserc-derive"
+edition = "2024"
+license = "MIT"
+name = "parserc-derive"
+repository = "https://github.com/styles-lab/parserc"
+version = "0.1.0"
+
+[dependencies]
+quote = "^1"
+syn = "^2"
+
+[lib]
+proc-macro = true

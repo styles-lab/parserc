@@ -1,4 +1,6 @@
-//! A fast and simple rust parser combinator framework, ***originally developed for `mlang` development***.
+//! A fast and simple rust parser combinator framework, ***originally developed for `stylang` development***.
+
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod errors;
 pub use errors::*;
@@ -8,3 +10,7 @@ pub use input::*;
 
 mod parser;
 pub use parser::*;
+
+#[cfg(feature = "derive")]
+#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
+pub use parserc_derive::*;

@@ -8,16 +8,18 @@ repository = "https://github.com/styles-lab/parserc"
 version = "0.6.1"
 
 [dependencies]
-log = {version = "^0.4", features = ["kv"]}
 memchr = "^2.7"
+parserc-derive = {version = "^0.1", path = "./derive", optional = true}
 serde = {version = "^1", features = ["derive"], optional = true}
 thiserror = "^2"
+
 [dev-dependencies]
 divan = "0.1.17"
 
 [features]
 default = ["serde"]
-serde = ["dep:serde", "log/kv_serde"]
+derive = ["parserc-derive"]
+serde = ["dep:serde"]
 
 [[bench]]
 harness = false
