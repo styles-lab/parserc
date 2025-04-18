@@ -298,7 +298,7 @@ fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
             type Error = #err_type;
 
             fn parse(input: #generic_input) -> parserc::Result<Self, #generic_input, Self::Error> {
-                use parserc::ParserExt;
+                use parserc::{ParserExt,Parser};
                 #(#stmts)*
             }
         }
