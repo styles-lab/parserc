@@ -135,6 +135,45 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
     let ident = &item.ident;
 
+    let fields = item
+        .fields
+        .iter()
+        .enumerate()
+        .map(|(offset, field)| {
+            let variable = if let Some(ident) = &field.ident {
+                ident.to_token_stream()
+            } else {
+                format!("variable_{}", offset).parse().unwrap()
+            };
+
+            let let_stmt = quote! {
+                let (#variable,input) = input.parse()?;
+            };
+
+            (variable, let_stmt)
+        })
+        .collect::<Vec<_>>();
+
+    let variables = fields
+        .iter()
+        .map(|(variable, _)| variable)
+        .collect::<Vec<_>>();
+
+    let let_stmts = fields.iter().map(|(_, stmt)| stmt).collect::<Vec<_>>();
+
+    let init_stmt = match item.fields {
+        syn::Fields::Named(_) => {
+            quote! {
+                (Self { #(#variables),* },input)
+            }
+        }
+        _ => {
+            quote! {
+                (Self(#(#variables),*),input)
+            }
+        }
+    };
+
     quote! {
         #item
 
@@ -142,7 +181,10 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
             type Error = #err_type;
 
             fn parse(input: #generic_input) -> parserc::Result<Self, #generic_input, Self::Error> {
-                todo!()
+                use parserc::InputParse;
+                #(#let_stmts)*
+
+                Ok(#init_stmt)
             }
         }
     }
