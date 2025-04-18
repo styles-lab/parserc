@@ -191,8 +191,119 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
     .into()
 }
 
-fn derive_enum_item(_: Attrs, item: ItemEnum) -> TokenStream {
-    item.into_token_stream().into()
+fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
+    let generic_input = if let Some(generic_input) = attrs.generic_input() {
+        generic_input
+    } else {
+        return Error::new(attrs.0, "Requires attribute `input=...` to be specified")
+            .into_compile_error()
+            .into();
+    };
+
+    let err_type = if let Some(err_type) = attrs.error_type() {
+        err_type
+    } else {
+        return Error::new(attrs.0, "Requires attribute `error=...` to be specified")
+            .into_compile_error()
+            .into();
+    };
+
+    let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
+    let item_ident = &item.ident;
+
+    let stmts = item
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(index, v)| {
+            let fields = v
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(offset, field)| {
+                    let variable = if let Some(ident) = &field.ident {
+                        ident.to_token_stream()
+                    } else {
+                        format!("variable_{}", offset).parse().unwrap()
+                    };
+
+                    let let_stmt = quote! {
+                        let (#variable,input) = input.parse()?;
+                    };
+
+                    (variable, let_stmt)
+                })
+                .collect::<Vec<_>>();
+
+            let variables = fields
+                .iter()
+                .map(|(variable, _)| variable)
+                .collect::<Vec<_>>();
+
+            let let_stmts = fields.iter().map(|(_, stmt)| stmt).collect::<Vec<_>>();
+
+            let ident = &v.ident;
+
+            let init_stmt = match v.fields {
+                syn::Fields::Named(_) => {
+                    quote! {
+                        (#item_ident::#ident { #(#variables),* },input)
+                    }
+                }
+                _ => {
+                    quote! {
+                        (#item_ident::#ident(#(#variables),*),input)
+                    }
+                }
+            };
+
+            let ident = format!("parse_{}", v.ident.to_string().to_lowercase())
+                .parse::<proc_macro2::TokenStream>()
+                .unwrap();
+
+            if item.variants.len() == index + 1 {
+                quote! {
+                    let mut #ident = |mut input: #generic_input| {
+                        use parserc::InputParse;
+                        #(#let_stmts)*
+
+                        Ok(#init_stmt)
+                    };
+
+                    #ident.parse(input)
+                }
+            } else {
+                quote! {
+                    let #ident = |mut input: #generic_input| {
+                        use parserc::InputParse;
+                        #(#let_stmts)*
+
+                        Ok(#init_stmt)
+                    };
+
+                    let (#ident,input) = #ident.ok().parse(input)?;
+
+                    if let Some(#ident) = #ident {
+                        return Ok((#ident,input));
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    quote! {
+        #item
+
+        impl #impl_generic parserc::Parse<#generic_input> for #item_ident #ty_generic #where_clause {
+            type Error = #err_type;
+
+            fn parse(input: #generic_input) -> parserc::Result<Self, #generic_input, Self::Error> {
+                use parserc::ParserExt;
+                #(#stmts)*
+            }
+        }
+    }
+    .into()
 }
 
 #[proc_macro_attribute]

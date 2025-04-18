@@ -17,7 +17,7 @@ thiserror = "^2"
 divan = "0.1.17"
 
 [features]
-default = ["serde"]
+default = ["serde", "derive"]
 derive = ["parserc-derive"]
 serde = ["dep:serde"]
 
