@@ -40,7 +40,7 @@ where
     I: Input + AsBytes + Clone,
 {
     pub start: BraceStart<I>,
-    pub end: BraceEnd<I>,
+    pub end: Option<BraceEnd<I>>,
 }
 
 #[derive_parse(error = Error,input = I)]
@@ -61,6 +61,7 @@ where
     End2(BraceEnd<I>, BraceEnd<I>),
     Start(BraceStart<I>),
     End(BraceEnd<I>),
+    Opt(Option<BraceEnd<I>>),
 }
 
 #[cfg(test)]
