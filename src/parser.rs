@@ -48,6 +48,18 @@ where
     }
 }
 
+impl<I, P> Parse<I> for Box<P>
+where
+    I: Input + Clone,
+    P: Parse<I>,
+{
+    type Error = P::Error;
+
+    fn parse(input: I) -> Result<Self, I, Self::Error> {
+        P::into_parser().map(|v| Box::new(v)).parse(input)
+    }
+}
+
 /// An extension trait that add parse function to `Input` trait.
 pub trait InputParse: Input + Sized {
     fn parse<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
