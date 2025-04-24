@@ -320,3 +320,43 @@ pub fn derive_parse(attr: TokenStream, input: TokenStream) -> TokenStream {
             .into(),
     }
 }
+
+#[proc_macro]
+pub fn make_tuple_parse_impl(_item: TokenStream) -> TokenStream {
+    let mut stmts = vec![];
+    for i in 2..16 {
+        let mut types = vec![];
+
+        for j in 0..i {
+            types.push(
+                format!("T{}", j)
+                    .parse::<proc_macro2::TokenStream>()
+                    .unwrap(),
+            );
+        }
+
+        stmts.push(quote! {
+            impl<I,E, #(#types),*> Parse<I> for (#(#types),*)
+            where
+                I: Input,
+                E: From<Kind> + std::fmt::Debug,
+                #(#types: Parse<I,Error = E>),*
+            {
+                type Error = E;
+
+                fn parse(input: I) -> Result<Self, I, Self::Error> {
+                    #(
+                        let (#types,input) = #types::parse(input)?;
+                    )*
+
+                    Ok(((#(#types),*),input))
+                }
+            }
+        });
+    }
+
+    quote! {
+        #(#stmts)*
+    }
+    .into()
+}
