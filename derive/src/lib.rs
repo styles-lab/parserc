@@ -115,7 +115,7 @@ impl Attrs {
     }
 }
 
-fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
+fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
     let generic_input = if let Some(generic_input) = attr.generic_input() {
         generic_input
     } else {
@@ -135,15 +135,22 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
     let ident = &item.ident;
 
-    let key_field = item.fields.iter().enumerate().find_map(|(offset, fields)| {
-        for attr in &fields.attrs {
-            if attr.to_token_stream().to_string() == "key_field" {
-                return Some(offset);
+    let mut key_field = None;
+
+    for (offset, field) in item.fields.iter_mut().enumerate() {
+        let mut attrs = vec![];
+        for attr in field.attrs.drain(..) {
+            if attr.to_token_stream().to_string() == "#[key_field]" {
+                if key_field.is_none() {
+                    key_field = Some(offset);
+                }
+            } else {
+                attrs.push(attr);
             }
         }
 
-        None
-    });
+        field.attrs = attrs;
+    }
 
     let fields = item
         .fields
@@ -156,9 +163,15 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
                 format!("variable_{}", offset).parse().unwrap()
             };
 
-            let let_stmt = if Some(offset) == key_field {
-                quote! {
-                    let (#variable,input) = input.parse_fatal()?;
+            let let_stmt = if let Some(key_field) = key_field {
+                if offset > key_field {
+                    quote! {
+                        let (#variable,input) = input.parse_fatal()?;
+                    }
+                } else {
+                    quote! {
+                        let (#variable,input) = input.parse()?;
+                    }
                 }
             } else {
                 quote! {
