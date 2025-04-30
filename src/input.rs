@@ -6,6 +6,8 @@ use std::{
     str::{CharIndices, Chars},
 };
 
+use crate::{Parse, Parser, ParserExt, Result};
+
 /// Convert self as a reference to [u8]
 pub trait AsBytes {
     /// Convert the input type to a byte slice
@@ -73,6 +75,19 @@ pub trait Input {
 
     fn iter_indices(&self) -> Self::IterIndices;
 }
+
+/// An extension trait that add parse function to `Input` trait.
+pub trait InputParse: Input + Sized {
+    fn parse<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
+        P::parse(self)
+    }
+
+    fn parse_fatal<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
+        P::into_parser().fatal().parse(self)
+    }
+}
+
+impl<I> InputParse for I where I: Input {}
 
 impl<'a> Input for &'a str {
     type Item = char;

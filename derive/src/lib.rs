@@ -135,6 +135,16 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
     let ident = &item.ident;
 
+    let key_field = item.fields.iter().enumerate().find_map(|(offset, fields)| {
+        for attr in &fields.attrs {
+            if attr.to_token_stream().to_string() == "key_field" {
+                return Some(offset);
+            }
+        }
+
+        None
+    });
+
     let fields = item
         .fields
         .iter()
@@ -146,8 +156,14 @@ fn derive_struct_item(attr: Attrs, item: ItemStruct) -> TokenStream {
                 format!("variable_{}", offset).parse().unwrap()
             };
 
-            let let_stmt = quote! {
-                let (#variable,input) = input.parse()?;
+            let let_stmt = if Some(offset) == key_field {
+                quote! {
+                    let (#variable,input) = input.parse_fatal()?;
+                }
+            } else {
+                quote! {
+                    let (#variable,input) = input.parse()?;
+                }
             };
 
             (variable, let_stmt)

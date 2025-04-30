@@ -60,15 +60,6 @@ where
     }
 }
 
-/// An extension trait that add parse function to `Input` trait.
-pub trait InputParse: Input + Sized {
-    fn parse<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
-        P::parse(self)
-    }
-}
-
-impl<I> InputParse for I where I: Input {}
-
 /// A parser wrapped from [`Parse`] type.
 #[derive(Debug, Clone, Copy)]
 pub struct IntoParser<I, P>(PhantomData<I>, PhantomData<P>);
