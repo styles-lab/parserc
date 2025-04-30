@@ -420,6 +420,31 @@ pub mod rustypes {
     }
 }
 
+#[cfg(feature = "derive")]
+impl<I, P> Parse<I> for Vec<P>
+where
+    I: Input + Clone,
+    P: Parse<I>,
+{
+    type Error = P::Error;
+
+    fn parse(mut input: I) -> Result<Self, I, Self::Error> {
+        let mut values = vec![];
+
+        loop {
+            let p;
+            (p, input) = P::into_parser().ok().parse(input)?;
+
+            if let Some(p) = p {
+                values.push(p);
+                continue;
+            }
+
+            return Ok((values, input));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
