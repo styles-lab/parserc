@@ -109,6 +109,11 @@ where
         Map(self, map)
     }
 
+    /// Create a parser that box this parser's output.
+    fn boxed(self) -> impl Parser<I, Error = Self::Error, Output = Box<Self::Output>> {
+        self.map(|v| Box::new(v))
+    }
+
     /// Create a [`Map`] parser from this parser.
     fn or<R>(self, parser: R) -> impl Parser<I, Error = Self::Error, Output = Self::Output>
     where
