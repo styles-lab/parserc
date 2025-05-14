@@ -31,7 +31,7 @@ where
 
     /// Convert [`Parse`] into [`Parser`].
     #[inline(always)]
-    fn into_parser() -> IntoParser<I, Self> {
+    fn into_parser() -> impl Parser<I, Output = Self, Error = Self::Error> {
         IntoParser(Default::default(), Default::default())
     }
 }
@@ -100,12 +100,18 @@ where
     I: Input,
 {
     /// Create an [`Optional`] parser from this parser.
-    fn ok(self) -> Optional<Self> {
+    fn ok(self) -> impl Parser<I, Error = Self::Error, Output = Option<Self::Output>>
+    where
+        I: Clone,
+    {
         Optional(self)
     }
 
     /// Create a [`Map`] parser from this parser.
-    fn map<F>(self, map: F) -> Map<Self, F> {
+    fn map<F, O>(self, map: F) -> impl Parser<I, Error = Self::Error, Output = O>
+    where
+        F: FnMut(Self::Output) -> O,
+    {
         Map(self, map)
     }
 
@@ -124,10 +130,11 @@ where
     }
 
     /// Create a [`MapErr`] parser from this parser.
-    fn map_err<F, E>(self, map_err: F) -> MapErr<Self, F>
+    fn map_err<F, E>(self, map_err: F) -> impl Parser<I, Error = E, Output = Self::Output>
     where
         F: FnMut(I, Self::Error) -> E,
         E: From<Kind> + Debug,
+        I: Clone,
     {
         MapErr(self, map_err)
     }
