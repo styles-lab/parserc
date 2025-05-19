@@ -1,8 +1,8 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::{fmt::Debug, marker::PhantomData, num::NonZero};
 
 use memchr::memmem;
 
-use crate::{AsBytes, ControlFlow, Input, Item, Kind, Result};
+use crate::{AsBytes, ControlFlow, Input, Item, Kind, Needed, Result};
 
 /// A parserc `Parser` must implement this trait.
 pub trait Parser<I>
@@ -380,16 +380,16 @@ where
         loop {
             if let Some(next) = iter.next() {
                 if !(cond)(next) {
-                    break;
+                    return Ok((input.split_to(offset), input));
                 }
 
                 offset += next.len();
             } else {
-                break;
+                return Err(ControlFlow::Incomplete(Needed::Size(
+                    NonZero::new(1).unwrap(),
+                )));
             }
         }
-
-        Ok((input.split_to(offset), input))
     }
 }
 
@@ -450,8 +450,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZero;
+
     use crate::{
-        ControlFlow, Kind, Parser, Result, keyword, next, take_till, take_until, take_while,
+        ControlFlow, Kind, Needed, Parser, Result, keyword, next, take_till, take_until, take_while,
     };
 
     use super::{Parse, ParserExt};
@@ -536,7 +538,9 @@ mod tests {
     fn test_take_till1() {
         assert_eq!(
             take_till::<&[u8], Kind, _>(|c| c == b'<').parse(b"\n".as_slice()),
-            Ok((b"\n".as_slice(), b"".as_slice())),
+            Err(ControlFlow::Incomplete(Needed::Size(
+                NonZero::new(1).unwrap()
+            ))),
         );
     }
 }
