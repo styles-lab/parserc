@@ -1,8 +1,8 @@
-use std::{fmt::Debug, marker::PhantomData, num::NonZero};
+use std::{fmt::Debug, marker::PhantomData};
 
 use memchr::memmem;
 
-use crate::{AsBytes, ControlFlow, Input, Item, Kind, Needed, Result};
+use crate::{AsBytes, ControlFlow, Input, Item, Kind, Result};
 
 /// A parserc `Parser` must implement this trait.
 pub trait Parser<I>
@@ -147,8 +147,9 @@ where
     /// Convert [`ControlFlow::Recovable`] to [`ControlFlow::Fatal`]
     fn fatal(self) -> impl Parser<I, Output = Self::Output, Error = Self::Error> {
         self.map_control_flow(|c| match c {
-            ControlFlow::Incomplete(needed) => ControlFlow::Incomplete(needed),
-            ControlFlow::Recovable(e) | ControlFlow::Fatal(e) => ControlFlow::Fatal(e),
+            ControlFlow::Incomplete(e) | ControlFlow::Recovable(e) | ControlFlow::Fatal(e) => {
+                ControlFlow::Fatal(e)
+            }
         })
     }
 
@@ -210,7 +211,7 @@ where
         match self.0.parse(input.clone()) {
             Ok(v) => Ok(v),
             Err(c) => match c {
-                ControlFlow::Incomplete(needed) => Err(ControlFlow::Incomplete(needed)),
+                ControlFlow::Incomplete(e) => Err(ControlFlow::Incomplete((self.1)(input, e))),
                 ControlFlow::Fatal(e) => Err(ControlFlow::Fatal((self.1)(input, e))),
                 ControlFlow::Recovable(e) => Err(ControlFlow::Recovable((self.1)(input, e))),
             },
@@ -380,16 +381,16 @@ where
         loop {
             if let Some(next) = iter.next() {
                 if !(cond)(next) {
-                    return Ok((input.split_to(offset), input));
+                    break;
                 }
 
                 offset += next.len();
             } else {
-                return Err(ControlFlow::Incomplete(Needed::Size(
-                    NonZero::new(1).unwrap(),
-                )));
+                break;
             }
         }
+
+        return Ok((input.split_to(offset), input));
     }
 }
 
@@ -450,10 +451,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::num::NonZero;
 
     use crate::{
-        ControlFlow, Kind, Needed, Parser, Result, keyword, next, take_till, take_until, take_while,
+        ControlFlow, Kind, Parser, Result, keyword, next, take_till, take_until, take_while,
     };
 
     use super::{Parse, ParserExt};
@@ -538,9 +538,7 @@ mod tests {
     fn test_take_till1() {
         assert_eq!(
             take_till::<&[u8], Kind, _>(|c| c == b'<').parse(b"\n".as_slice()),
-            Err(ControlFlow::Incomplete(Needed::Size(
-                NonZero::new(1).unwrap()
-            ))),
+            Err(ControlFlow::Incomplete(Kind::TakeWhile.into())),
         );
     }
 }

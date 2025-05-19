@@ -19,7 +19,7 @@ where
     /// If you are sure your parser is working on full data, you can wrap your parser with the complete combinator to
     /// transform that case in Error
     #[error("incomplete: {0:?}")]
-    Incomplete(Needed),
+    Incomplete(E),
     /// indicates an unrecoverable error. For example, when a prefix has been recognised and the next parser has been confirmed,
     /// if that parser fails, then the entire process fails; there are no more parsers to try.
     #[error("fatal: {0:?}")]
@@ -40,7 +40,7 @@ where
         E1: From<E> + Debug,
     {
         match self {
-            ControlFlow::Incomplete(needed) => ControlFlow::Incomplete(needed),
+            ControlFlow::Incomplete(e) => ControlFlow::Incomplete(e.into()),
             ControlFlow::Fatal(e) => ControlFlow::Fatal(e.into()),
             ControlFlow::Recovable(e) => ControlFlow::Recovable(e.into()),
         }
@@ -60,6 +60,8 @@ pub enum Kind {
     TakeUntil,
     #[error("satisfy")]
     Satisfy,
+    #[error("while")]
+    TakeWhile,
 }
 
 /// Result type used by `parserc`.
