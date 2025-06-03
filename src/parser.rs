@@ -112,7 +112,9 @@ where
 
     /// Convert [`PartialParse`] into [`Parser`].
     #[inline(always)]
-    fn into_parser(parsed: Self::Parsed) -> impl Parser<I, Output = Self, Error = Self::Error> {
+    fn into_parser_with(
+        parsed: Self::Parsed,
+    ) -> impl Parser<I, Output = Self, Error = Self::Error> {
         PartialParser(parsed, Default::default(), Default::default())
     }
 }
@@ -128,7 +130,7 @@ where
     type Parsed = P;
 
     fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser(parsed).ok().parse(input)
+        T::into_parser_with(parsed).ok().parse(input)
     }
 }
 
@@ -143,7 +145,7 @@ where
     type Parsed = P;
 
     fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser(parsed).boxed().parse(input)
+        T::into_parser_with(parsed).boxed().parse(input)
     }
 }
 

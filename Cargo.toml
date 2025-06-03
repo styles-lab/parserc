@@ -5,12 +5,12 @@ edition = "2024"
 license = "MIT"
 name = "parserc"
 repository = "https://github.com/styles-lab/parserc"
-version = "0.7.3"
+version = "0.7.4"
 
 [dependencies]
 memchr = "^2.7"
-parserc-derive = {version = "^0.1", path = "./derive", optional = true}
-serde = {version = "^1", features = ["derive"], optional = true}
+parserc-derive = { version = "^0.1", path = "./derive", optional = true }
+serde = { version = "^1", features = ["derive"], optional = true }
 thiserror = "^2"
 
 [dev-dependencies]
