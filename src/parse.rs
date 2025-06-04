@@ -167,7 +167,7 @@ pub trait ParseFromInput: Input + Sized {
         P::parse(self)
     }
 
-    /// Parse next item from the input stream, and converts the error that occurs to [`ControlFlow::Fatal`].
+    /// Parse next item from the input stream, and converts the error that occurs to `ControlFlow::Fatal`.
     fn ensure<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
         P::into_parser().parse(self)
     }
