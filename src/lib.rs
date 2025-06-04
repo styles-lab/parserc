@@ -13,7 +13,6 @@ pub use parser::*;
 
 #[cfg(feature = "derive")]
 #[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
-pub use parserc_derive::derive_parse;
-
+mod parse;
 #[cfg(feature = "derive")]
-parserc_derive::make_tuple_parse_impl!();
+pub use parse::*;

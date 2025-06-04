@@ -166,7 +166,7 @@ fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
             let let_stmt = if let Some(key_field) = key_field {
                 if offset > key_field {
                     quote! {
-                        let (#variable,input) = input.parse_fatal()?;
+                        let (#variable,input) = input.ensure()?;
                     }
                 } else {
                     quote! {
@@ -210,7 +210,7 @@ fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
             type Error = #err_type;
 
             fn parse(input: #generic_input) -> parserc::Result<Self, #generic_input, Self::Error> {
-                use parserc::InputParse;
+                use parserc::ParseFromInput;
                 #(#let_stmts)*
 
                 Ok(#init_stmt)
@@ -293,7 +293,7 @@ fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
             if item.variants.len() == index + 1 {
                 quote! {
                     let mut #ident = |mut input: #generic_input| {
-                        use parserc::InputParse;
+                        use parserc::ParseFromInput;
                         #(#let_stmts)*
 
                         Ok(#init_stmt)
@@ -304,7 +304,7 @@ fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
             } else {
                 quote! {
                     let #ident = |mut input: #generic_input| {
-                        use parserc::InputParse;
+                        use parserc::ParseFromInput;
                         #(#let_stmts)*
 
                         Ok(#init_stmt)

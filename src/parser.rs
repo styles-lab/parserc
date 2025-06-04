@@ -1,4 +1,4 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use memchr::memmem;
 
@@ -16,137 +16,6 @@ where
 
     /// A parser takes in input type, and returns a Result containing either the remaining input and the output value, or an error.
     fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error>;
-}
-
-#[derive(Debug, Clone, Copy)]
-struct ParseParser<I, P>(PhantomData<I>, PhantomData<P>);
-
-impl<I, P> Parser<I> for ParseParser<I, P>
-where
-    P: Parse<I>,
-    I: Input,
-{
-    type Error = P::Error;
-    type Output = P;
-
-    #[inline(always)]
-    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
-        P::parse(input)
-    }
-}
-
-/// All types that can be parsed from an input type should implement this trait.
-pub trait Parse<I>: Sized
-where
-    I: Input,
-{
-    /// Error kind of this parser type.
-    type Error: From<Kind> + Debug;
-
-    /// Parse input type as `Self`.
-    fn parse(input: I) -> Result<Self, I, Self::Error>;
-
-    /// Convert [`Parse`] into [`Parser`].
-    #[inline(always)]
-    fn into_parser() -> impl Parser<I, Output = Self, Error = Self::Error> {
-        ParseParser(Default::default(), Default::default())
-    }
-}
-
-impl<I, P> Parse<I> for Option<P>
-where
-    I: Input + Clone,
-    P: Parse<I>,
-{
-    type Error = P::Error;
-
-    fn parse(input: I) -> Result<Self, I, Self::Error> {
-        P::into_parser().ok().parse(input)
-    }
-}
-
-impl<I, P> Parse<I> for Box<P>
-where
-    I: Input + Clone,
-    P: Parse<I>,
-{
-    type Error = P::Error;
-
-    fn parse(input: I) -> Result<Self, I, Self::Error> {
-        P::into_parser().boxed().parse(input)
-    }
-}
-
-struct PartialParser<I, P, T>(P, PhantomData<T>, PhantomData<I>)
-where
-    I: Input;
-
-impl<I, P, T> Parser<I> for PartialParser<I, P, T>
-where
-    P: Clone,
-    T: PartialParse<I, Parsed = P>,
-    I: Input,
-{
-    type Output = T;
-
-    type Error = T::Error;
-
-    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
-        T::parse(self.0.clone(), input)
-    }
-}
-
-/// A type that parse rest part from the input.
-pub trait PartialParse<I>: Sized
-where
-    I: Input,
-{
-    /// Error kind of this parser type.
-    type Error: From<Kind> + Debug;
-
-    /// The parsed part of the type.
-    type Parsed: Clone;
-
-    /// Parse input type as `Self`.
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error>;
-
-    /// Convert [`PartialParse`] into [`Parser`].
-    #[inline(always)]
-    fn into_parser_with(
-        parsed: Self::Parsed,
-    ) -> impl Parser<I, Output = Self, Error = Self::Error> {
-        PartialParser(parsed, Default::default(), Default::default())
-    }
-}
-
-impl<I, P, T> PartialParse<I> for Option<T>
-where
-    P: Clone,
-    I: Input + Clone,
-    T: PartialParse<I, Parsed = P>,
-{
-    type Error = T::Error;
-
-    type Parsed = P;
-
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser_with(parsed).ok().parse(input)
-    }
-}
-
-impl<I, P, T> PartialParse<I> for Box<T>
-where
-    P: Clone,
-    I: Input + Clone,
-    T: PartialParse<I, Parsed = P>,
-{
-    type Error = T::Error;
-
-    type Parsed = P;
-
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser_with(parsed).boxed().parse(input)
-    }
 }
 
 impl<O, I, E, F> Parser<I> for F
@@ -476,50 +345,6 @@ where
     take_while(move |c: I::Item| !cond(c))
 }
 
-/// This module provides utilities to parse rust types.
-pub mod rustypes {
-    use super::*;
-
-    impl<I> Parse<I> for bool
-    where
-        I: Input + AsBytes + Clone,
-    {
-        type Error = Kind;
-
-        fn parse(input: I) -> Result<Self, I, Self::Error> {
-            keyword("true")
-                .map(|_| true)
-                .or(keyword("false").map(|_| false))
-                .parse(input)
-        }
-    }
-}
-
-#[cfg(feature = "derive")]
-impl<I, P> Parse<I> for Vec<P>
-where
-    I: Input + Clone,
-    P: Parse<I>,
-{
-    type Error = P::Error;
-
-    fn parse(mut input: I) -> Result<Self, I, Self::Error> {
-        let mut values = vec![];
-
-        loop {
-            let p;
-            (p, input) = P::into_parser().ok().parse(input)?;
-
-            if let Some(p) = p {
-                values.push(p);
-                continue;
-            }
-
-            return Ok((values, input));
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
@@ -527,7 +352,7 @@ mod tests {
         ControlFlow, Kind, Parser, Result, keyword, next, take_till, take_until, take_while,
     };
 
-    use super::{Parse, ParserExt};
+    use super::ParserExt;
 
     fn mock_recovable(_: &str) -> Result<&str, &str, Kind> {
         Err(ControlFlow::Recovable(Kind::None))
@@ -579,13 +404,6 @@ mod tests {
     }
 
     #[test]
-    fn test_map() {
-        assert_eq!(bool::parse("false"), Ok((false, "")));
-
-        assert_eq!(bool::parse("true"), Ok((true, "")));
-    }
-
-    #[test]
     fn test_take_while() {
         fn digit(input: &str) -> Result<&str, &str, Kind> {
             take_while(|c: char| c.is_ascii_digit()).parse(input)
@@ -609,7 +427,7 @@ mod tests {
     fn test_take_till1() {
         assert_eq!(
             take_till::<&[u8], Kind, _>(|c| c == b'<').parse(b"\n".as_slice()),
-            Err(ControlFlow::Incomplete(Kind::TakeWhile.into())),
+            Ok(([10u8].as_slice(), [].as_slice())),
         );
     }
 }

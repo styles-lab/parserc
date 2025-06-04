@@ -121,25 +121,6 @@ mod bench_or {
 }
 
 #[divan::bench_group]
-
-mod parse {
-    use parserc::Parser;
-
-    #[divan::bench]
-    fn bench_parse() {
-        use parserc::Parse;
-
-        bool::parse("true").unwrap();
-    }
-
-    #[divan::bench]
-    fn bench_into_parse() {
-        use parserc::Parse;
-        bool::into_parser().parse("true").unwrap();
-    }
-}
-
-#[divan::bench_group]
 mod bench_take_while {
     use parserc::{Kind, Parser, Result, take_till, take_while};
 
