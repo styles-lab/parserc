@@ -39,6 +39,7 @@ pub struct Delimiter<I>
 where
     I: Input + AsBytes + Clone,
 {
+    #[fatal]
     pub start: BraceStart<I>,
     pub end: Option<BraceEnd<I>>,
 }

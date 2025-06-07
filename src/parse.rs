@@ -3,24 +3,6 @@ use std::{fmt::Debug, marker::PhantomData};
 use crate::{Input, Kind, Parser, ParserExt, Result};
 
 pub use parserc_derive::derive_parse;
-parserc_derive::make_tuple_parse_impl!();
-
-#[derive(Debug, Clone, Copy)]
-struct ParseParser<I, P>(PhantomData<I>, PhantomData<P>);
-
-impl<I, P> Parser<I> for ParseParser<I, P>
-where
-    P: Parse<I>,
-    I: Input,
-{
-    type Error = P::Error;
-    type Output = P;
-
-    #[inline(always)]
-    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
-        P::parse(input)
-    }
-}
 
 /// All types that can be parsed from an input type should implement this trait.
 pub trait Parse<I>: Sized
@@ -36,7 +18,26 @@ where
     /// Convert [`Parse`] into [`Parser`].
     #[inline(always)]
     fn into_parser() -> impl Parser<I, Output = Self, Error = Self::Error> {
-        ParseParser(Default::default(), Default::default())
+        AsParser(Default::default(), Default::default())
+    }
+}
+
+parserc_derive::make_tuple_parse_impl!();
+
+#[derive(Debug, Clone, Copy)]
+struct AsParser<I, P>(PhantomData<I>, PhantomData<P>);
+
+impl<I, P> Parser<I> for AsParser<I, P>
+where
+    P: Parse<I>,
+    I: Input,
+{
+    type Error = P::Error;
+    type Output = P;
+
+    #[inline(always)]
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        P::parse(input)
     }
 }
 
@@ -88,27 +89,8 @@ where
     }
 }
 
-struct PartialParser<I, P, T>(P, PhantomData<T>, PhantomData<I>)
-where
-    I: Input;
-
-impl<I, P, T> Parser<I> for PartialParser<I, P, T>
-where
-    P: Clone,
-    T: PartialParse<I, Parsed = P>,
-    I: Input,
-{
-    type Output = T;
-
-    type Error = T::Error;
-
-    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
-        T::parse(self.0.clone(), input)
-    }
-}
-
 /// A type that parse rest part from the input.
-pub trait PartialParse<I>: Sized
+pub trait Partial<I>: Sized
 where
     I: Input,
 {
@@ -119,44 +101,63 @@ where
     type Parsed: Clone;
 
     /// Parse input type as `Self`.
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error>;
+    fn partial_parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error>;
 
-    /// Convert [`PartialParse`] into [`Parser`].
+    /// Create a [`Parser`] with parsed part.
     #[inline(always)]
-    fn into_parser_with(
+    fn into_partial_parser(
         parsed: Self::Parsed,
     ) -> impl Parser<I, Output = Self, Error = Self::Error> {
         PartialParser(parsed, Default::default(), Default::default())
     }
 }
 
-impl<I, P, T> PartialParse<I> for Option<T>
+struct PartialParser<I, P, T>(P, PhantomData<T>, PhantomData<I>)
+where
+    I: Input;
+
+impl<I, P, T> Parser<I> for PartialParser<I, P, T>
 where
     P: Clone,
-    I: Input + Clone,
-    T: PartialParse<I, Parsed = P>,
+    T: Partial<I, Parsed = P>,
+    I: Input,
 {
+    type Output = T;
+
     type Error = T::Error;
 
-    type Parsed = P;
-
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser_with(parsed).ok().parse(input)
+    fn parse(&mut self, input: I) -> Result<Self::Output, I, Self::Error> {
+        T::partial_parse(self.0.clone(), input)
     }
 }
 
-impl<I, P, T> PartialParse<I> for Box<T>
+impl<I, P, T> Partial<I> for Option<T>
 where
     P: Clone,
     I: Input + Clone,
-    T: PartialParse<I, Parsed = P>,
+    T: Partial<I, Parsed = P>,
 {
     type Error = T::Error;
 
     type Parsed = P;
 
-    fn parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
-        T::into_parser_with(parsed).boxed().parse(input)
+    fn partial_parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
+        T::into_partial_parser(parsed).ok().parse(input)
+    }
+}
+
+impl<I, P, T> Partial<I> for Box<T>
+where
+    P: Clone,
+    I: Input + Clone,
+    T: Partial<I, Parsed = P>,
+{
+    type Error = T::Error;
+
+    type Parsed = P;
+
+    fn partial_parse(parsed: Self::Parsed, input: I) -> Result<Self, I, Self::Error> {
+        T::into_partial_parser(parsed).boxed().parse(input)
     }
 }
 
@@ -168,8 +169,8 @@ pub trait ParseFromInput: Input + Sized {
     }
 
     /// Parse next item from the input stream, and converts the error that occurs to `ControlFlow::Fatal`.
-    fn ensure<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
-        P::into_parser().parse(self)
+    fn ensure_parse<P: Parse<Self>>(self) -> Result<P, Self, P::Error> {
+        P::into_parser().fatal().parse(self)
     }
 }
 
@@ -223,7 +224,7 @@ where
     }
 }
 
-///A grouping token `(Start,End)` that surrounds a type `B`
+/// A grouping token `(Start,End)` that surrounds a type `B`
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Delimiter<Start, End, Body> {
@@ -244,8 +245,8 @@ where
 
     fn parse(input: I) -> Result<Self, I, Self::Error> {
         let (delimiter_start, input) = Start::parse(input)?;
-        let (body, input) = Body::parse(input)?;
-        let (delimiter_end, input) = End::parse(input)?;
+        let (body, input) = Body::into_parser().fatal().parse(input)?;
+        let (delimiter_end, input) = End::into_parser().fatal().parse(input)?;
 
         Ok((
             Self {

@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::{ToTokens, quote};
 use syn::{
-    Error, ExprPath, Ident, Item, ItemEnum, ItemStruct, Token, parse::Parse, parse_macro_input,
-    punctuated::Punctuated, spanned::Spanned,
+    Error, ExprPath, Fields, Ident, Item, ItemEnum, ItemStruct, Token, parse::Parse,
+    parse_macro_input, punctuated::Punctuated, spanned::Spanned,
 };
 
 mod kw {
@@ -115,6 +117,50 @@ impl Attrs {
     }
 }
 
+fn drive_fields(fields: &mut Fields) -> Vec<(proc_macro2::TokenStream, proc_macro2::TokenStream)> {
+    let mut fatal_fields = HashSet::new();
+
+    for (offset, field) in fields.iter_mut().enumerate() {
+        let mut attrs = vec![];
+        for attr in field.attrs.drain(..) {
+            match attr.to_token_stream().to_string().as_str() {
+                "#[fatal]" => {
+                    fatal_fields.insert(offset);
+                }
+                _ => {
+                    attrs.push(attr);
+                }
+            }
+        }
+
+        field.attrs = attrs;
+    }
+
+    fields
+        .iter()
+        .enumerate()
+        .map(|(offset, field)| {
+            let variable = if let Some(ident) = &field.ident {
+                ident.to_token_stream()
+            } else {
+                format!("variable_{}", offset).parse().unwrap()
+            };
+
+            let let_stmt = if fatal_fields.contains(&offset) {
+                quote! {
+                    let (#variable,input) = input.ensure_parse()?;
+                }
+            } else {
+                quote! {
+                    let (#variable,input) = input.parse()?;
+                }
+            };
+
+            (variable, let_stmt)
+        })
+        .collect()
+}
+
 fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
     let generic_input = if let Some(generic_input) = attr.generic_input() {
         generic_input
@@ -135,53 +181,7 @@ fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
     let ident = &item.ident;
 
-    let mut key_field = None;
-
-    for (offset, field) in item.fields.iter_mut().enumerate() {
-        let mut attrs = vec![];
-        for attr in field.attrs.drain(..) {
-            if attr.to_token_stream().to_string() == "#[key_field]" {
-                if key_field.is_none() {
-                    key_field = Some(offset);
-                }
-            } else {
-                attrs.push(attr);
-            }
-        }
-
-        field.attrs = attrs;
-    }
-
-    let fields = item
-        .fields
-        .iter()
-        .enumerate()
-        .map(|(offset, field)| {
-            let variable = if let Some(ident) = &field.ident {
-                ident.to_token_stream()
-            } else {
-                format!("variable_{}", offset).parse().unwrap()
-            };
-
-            let let_stmt = if let Some(key_field) = key_field {
-                if offset > key_field {
-                    quote! {
-                        let (#variable,input) = input.ensure()?;
-                    }
-                } else {
-                    quote! {
-                        let (#variable,input) = input.parse()?;
-                    }
-                }
-            } else {
-                quote! {
-                    let (#variable,input) = input.parse()?;
-                }
-            };
-
-            (variable, let_stmt)
-        })
-        .collect::<Vec<_>>();
+    let fields = drive_fields(&mut item.fields);
 
     let variables = fields
         .iter()
@@ -220,7 +220,7 @@ fn derive_struct_item(attr: Attrs, mut item: ItemStruct) -> TokenStream {
     .into()
 }
 
-fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
+fn derive_enum_item(attrs: Attrs, mut item: ItemEnum) -> TokenStream {
     let generic_input = if let Some(generic_input) = attrs.generic_input() {
         generic_input
     } else {
@@ -238,31 +238,16 @@ fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
     };
 
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
-    let item_ident = &item.ident;
+
+    let item_ident = item.ident.clone();
+    let variants_len = item.variants.len();
 
     let stmts = item
         .variants
-        .iter()
+        .iter_mut()
         .enumerate()
         .map(|(index, v)| {
-            let fields = v
-                .fields
-                .iter()
-                .enumerate()
-                .map(|(offset, field)| {
-                    let variable = if let Some(ident) = &field.ident {
-                        ident.to_token_stream()
-                    } else {
-                        format!("variable_{}", offset).parse().unwrap()
-                    };
-
-                    let let_stmt = quote! {
-                        let (#variable,input) = input.parse()?;
-                    };
-
-                    (variable, let_stmt)
-                })
-                .collect::<Vec<_>>();
+            let fields = drive_fields(&mut v.fields);
 
             let variables = fields
                 .iter()
@@ -290,7 +275,7 @@ fn derive_enum_item(attrs: Attrs, item: ItemEnum) -> TokenStream {
                 .parse::<proc_macro2::TokenStream>()
                 .unwrap();
 
-            if item.variants.len() == index + 1 {
+            if variants_len == index + 1 {
                 quote! {
                     let mut #ident = |mut input: #generic_input| {
                         use parserc::ParseFromInput;
