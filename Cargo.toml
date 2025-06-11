@@ -9,7 +9,6 @@ version = "0.7.5"
 
 [dependencies]
 memchr = "^2.7"
-parserc-derive = { version = "^0.1", path = "./derive", optional = true }
 serde = { version = "^1", features = ["derive"], optional = true }
 thiserror = "^2"
 
@@ -17,10 +16,5 @@ thiserror = "^2"
 divan = "0.1.17"
 
 [features]
-default = ["serde", "derive"]
-derive = ["parserc-derive"]
+default = ["serde"]
 serde = ["dep:serde"]
-
-[[bench]]
-harness = false
-name = "parsers"

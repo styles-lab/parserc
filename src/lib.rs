@@ -5,14 +5,5 @@
 mod errors;
 pub use errors::*;
 
-mod input;
-pub use input::*;
-
-mod parser;
-pub use parser::*;
-
-#[cfg(feature = "derive")]
-#[cfg_attr(docsrs, doc(cfg(feature = "derive")))]
-mod parse;
-#[cfg(feature = "derive")]
-pub use parse::*;
+mod inputs;
+pub use inputs::*;
