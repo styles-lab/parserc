@@ -16,5 +16,6 @@ thiserror = "^2"
 divan = "0.1.17"
 
 [features]
-default = ["serde"]
+default = ["serde", "ebnf"]
 serde = ["dep:serde"]
+ebnf = []

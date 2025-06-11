@@ -2,8 +2,6 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-mod errors;
-pub use errors::*;
-
-mod inputs;
-pub use inputs::*;
+pub mod errors;
+pub mod inputs;
+pub mod parser;
