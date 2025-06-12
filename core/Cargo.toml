@@ -1,0 +1,24 @@
+[package]
+description = "Rust parser combinator framework for small languages."
+documentation = "https://docs.rs/parserc"
+edition = "2024"
+license = "MIT"
+name = "parserc"
+repository = "https://github.com/styles-lab/parserc"
+version = "0.8.0"
+
+[dependencies]
+memchr = "^2.7"
+serde = { version = "^1", features = ["derive"], optional = true }
+thiserror = "^2"
+parserc-derive = { path = "../derive", version = "^0.8", optional = true }
+
+[dev-dependencies]
+divan = "0.1.17"
+
+[features]
+default = ["serde", "syntax", "token"]
+serde = ["dep:serde"]
+derive = ["parserc-derive"]
+syntax = ["derive"]
+token = ["syntax", "parserc-derive/token"]

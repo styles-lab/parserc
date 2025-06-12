@@ -1,21 +1,3 @@
-[package]
-description = "Rust parser combinator framework for small languages."
-documentation = "https://docs.rs/parserc"
-edition = "2024"
-license = "MIT"
-name = "parserc"
-repository = "https://github.com/styles-lab/parserc"
-version = "0.7.5"
-
-[dependencies]
-memchr = "^2.7"
-serde = { version = "^1", features = ["derive"], optional = true }
-thiserror = "^2"
-
-[dev-dependencies]
-divan = "0.1.17"
-
-[features]
-default = ["serde", "ebnf"]
-serde = ["dep:serde"]
-ebnf = []
+[workspace]
+resolver = "3"
+members = ["core", "derive"]

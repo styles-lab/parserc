@@ -5,3 +5,6 @@
 pub mod errors;
 pub mod inputs;
 pub mod parser;
+
+#[cfg(feature = "syntax")]
+pub mod syntax;

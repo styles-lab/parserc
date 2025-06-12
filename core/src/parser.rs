@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use crate::{
     errors::{ControlFlow, ParseError, Result},
-    inputs::{Find, Input, Item},
+    inputs::{Find, Input, Item, StartWith},
 };
 
 /// A parsing combinator should implement this trait.
@@ -49,7 +49,7 @@ where
     }
 
     /// Creates a parser that convert all `non-fatal` error into [`fatal`](ControlFlow::Fatal) error.
-    fn fatal<F>(self) -> impl Parser<I, Output = Self::Output, Error = Self::Error>
+    fn fatal(self) -> impl Parser<I, Output = Self::Output, Error = Self::Error>
     where
         Self: Sized,
     {
@@ -57,7 +57,7 @@ where
     }
 
     /// Map output into `Box<Self::Output>`, this func is short for code `Parser::map(|v|Box::new(v))`
-    fn boxed<F>(self) -> impl Parser<I, Output = Box<Self::Output>, Error = Self::Error>
+    fn boxed(self) -> impl Parser<I, Output = Box<Self::Output>, Error = Self::Error>
     where
         Self: Sized,
     {
@@ -233,6 +233,23 @@ where
             Err(ControlFlow::Recovable(E::expect_next_if(diagnosis, input)))
         } else {
             Err(ControlFlow::Incomplete(E::expect_next_if(diagnosis, input)))
+        }
+    }
+}
+
+/// Recogonize a keyword
+#[inline]
+pub fn keyword<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
+where
+    I: Input + StartWith<KW>,
+    E: ParseError<Input = I>,
+    KW: Debug + Clone,
+{
+    move |mut input: I| {
+        if let Some(len) = input.starts_with(keyword.clone()) {
+            Ok((input.split_to(len), input))
+        } else {
+            Err(ControlFlow::Recovable(E::expect_start_with(keyword, input)))
         }
     }
 }

@@ -22,7 +22,7 @@ pub struct Span {
 /// An extension trait provides extra `starts_with` func to `Input`.
 pub trait StartWith<Needle> {
     /// Convert the input type to a byte slice
-    fn starts_with(&self, needle: Needle) -> bool;
+    fn starts_with(&self, needle: Needle) -> Option<usize>;
 }
 
 /// An extension trait providers extra `find` func to `Input`.
@@ -69,7 +69,7 @@ impl Item for char {
 }
 
 /// The abtraction of `parsers` input data.
-pub trait Input: Diagnosis {
+pub trait Input: Diagnosis + PartialEq + Debug {
     /// The current input type is a sequence of that Item type.
     ///
     /// Example: u8 for &[u8] or char for &str
@@ -198,20 +198,32 @@ impl<'a> AsStr for &'a str {
 }
 
 impl<'a> StartWith<&str> for &'a str {
-    fn starts_with(&self, needle: &str) -> bool {
-        self.as_bytes().starts_with(needle.as_bytes())
+    fn starts_with(&self, needle: &str) -> Option<usize> {
+        if self.as_bytes().starts_with(needle.as_bytes()) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a> StartWith<&[u8]> for &'a str {
-    fn starts_with(&self, needle: &[u8]) -> bool {
-        self.as_bytes().starts_with(needle)
+    fn starts_with(&self, needle: &[u8]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle.as_bytes()) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a, const N: usize> StartWith<&[u8; N]> for &'a str {
-    fn starts_with(&self, needle: &[u8; N]) -> bool {
-        self.as_bytes().starts_with(needle.as_slice())
+    fn starts_with(&self, needle: &[u8; N]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
@@ -284,14 +296,22 @@ impl<'a> AsBytes for &'a [u8] {
 }
 
 impl<'a> StartWith<&[u8]> for &'a [u8] {
-    fn starts_with(&self, needle: &[u8]) -> bool {
-        <[u8]>::starts_with(self, needle)
+    fn starts_with(&self, needle: &[u8]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a, const N: usize> StartWith<&[u8; N]> for &'a [u8] {
-    fn starts_with(&self, needle: &[u8; N]) -> bool {
-        <[u8]>::starts_with(self, needle)
+    fn starts_with(&self, needle: &[u8; N]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
@@ -388,20 +408,32 @@ impl<'a> AsStr for (usize, &'a str) {
 }
 
 impl<'a> StartWith<&str> for (usize, &'a str) {
-    fn starts_with(&self, needle: &str) -> bool {
-        self.as_bytes().starts_with(needle.as_bytes())
+    fn starts_with(&self, needle: &str) -> Option<usize> {
+        if self.as_bytes().starts_with(needle.as_bytes()) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a> StartWith<&[u8]> for (usize, &'a str) {
-    fn starts_with(&self, needle: &[u8]) -> bool {
-        self.as_bytes().starts_with(needle)
+    fn starts_with(&self, needle: &[u8]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a, const N: usize> StartWith<&[u8; N]> for (usize, &'a str) {
-    fn starts_with(&self, needle: &[u8; N]) -> bool {
-        self.as_bytes().starts_with(needle.as_slice())
+    fn starts_with(&self, needle: &[u8; N]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
@@ -485,14 +517,22 @@ impl<'a> WithSpan for (usize, &'a [u8]) {
 }
 
 impl<'a> StartWith<&[u8]> for (usize, &'a [u8]) {
-    fn starts_with(&self, needle: &[u8]) -> bool {
-        <[u8]>::starts_with(self.1, needle)
+    fn starts_with(&self, needle: &[u8]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
 impl<'a, const N: usize> StartWith<&[u8; N]> for (usize, &'a [u8]) {
-    fn starts_with(&self, needle: &[u8; N]) -> bool {
-        <[u8]>::starts_with(self.1, needle)
+    fn starts_with(&self, needle: &[u8; N]) -> Option<usize> {
+        if self.as_bytes().starts_with(needle) {
+            Some(needle.len())
+        } else {
+            None
+        }
     }
 }
 
@@ -623,20 +663,32 @@ pub mod lang {
     }
 
     impl<'a> StartWith<&str> for TokenStream<'a> {
-        fn starts_with(&self, needle: &str) -> bool {
-            self.value.as_bytes().starts_with(needle.as_bytes())
+        fn starts_with(&self, needle: &str) -> Option<usize> {
+            if self.as_bytes().starts_with(needle.as_bytes()) {
+                Some(needle.len())
+            } else {
+                None
+            }
         }
     }
 
     impl<'a> StartWith<&[u8]> for TokenStream<'a> {
-        fn starts_with(&self, needle: &[u8]) -> bool {
-            self.value.as_bytes().starts_with(needle)
+        fn starts_with(&self, needle: &[u8]) -> Option<usize> {
+            if self.as_bytes().starts_with(needle) {
+                Some(needle.len())
+            } else {
+                None
+            }
         }
     }
 
     impl<'a, const N: usize> StartWith<&[u8; N]> for TokenStream<'a> {
-        fn starts_with(&self, needle: &[u8; N]) -> bool {
-            self.value.as_bytes().starts_with(needle)
+        fn starts_with(&self, needle: &[u8; N]) -> Option<usize> {
+            if self.as_bytes().starts_with(needle) {
+                Some(needle.len())
+            } else {
+                None
+            }
         }
     }
 

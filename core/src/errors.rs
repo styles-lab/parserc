@@ -6,7 +6,7 @@ use crate::inputs::Input;
 
 /// Diagnosis error type that returns by `parsers` should implement this trait.
 pub trait ParseError: Error + Debug + PartialEq {
-    type Input: Input;
+    type Input: Input + PartialEq + Debug;
 
     /// Error raised by parser [`next`](crate::parser::next).
     fn expect_next(item: <Self::Input as Input>::Item, input: Self::Input) -> Self;
@@ -16,6 +16,12 @@ pub trait ParseError: Error + Debug + PartialEq {
 
     /// Error raised by parser [`take_util`](crate::parser::take_until).
     fn expect_find<K: Debug>(keyword: K, input: Self::Input) -> Self;
+
+    /// Error raised by parser [`take_util`](crate::parser::take_until).
+    fn expect_start_with<K: Debug>(keyword: K, input: Self::Input) -> Self;
+
+    /// Error raised by `Syntax`.
+    fn expect_token(diagnosis: &'static str, input: Self::Input) -> Self;
 }
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -31,6 +37,12 @@ where
 
     #[error("not found ({0}), ({1})")]
     Find(String, String),
+
+    #[error("expect start with({0}), ({1})")]
+    StartWith(String, String),
+
+    #[error("expect token({0}), ({1})")]
+    Token(&'static str, String),
 }
 
 impl<I> ParseError for ErrorKind<I>
@@ -49,6 +61,14 @@ where
 
     fn expect_find<K: Debug>(keyword: K, input: Self::Input) -> Self {
         Self::Find(format!("{:?}", keyword), input.debug())
+    }
+
+    fn expect_start_with<K: Debug>(keyword: K, input: Self::Input) -> Self {
+        Self::StartWith(format!("{:?}", keyword), input.debug())
+    }
+
+    fn expect_token(diagnosis: &'static str, input: Self::Input) -> Self {
+        Self::Token(diagnosis, input.debug())
     }
 }
 

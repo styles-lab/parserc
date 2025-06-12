@@ -1,0 +1,19 @@
+[package]
+description = "proc-marco crate for parserc."
+documentation = "https://docs.rs/parserc-derive"
+edition = "2024"
+license = "MIT"
+name = "parserc-derive"
+repository = "https://github.com/styles-lab/parserc"
+version = "0.8.0"
+
+[dependencies]
+proc-macro2 = "^1"
+quote = "^1"
+syn = { version = "^2", features = ["full"] }
+
+[lib]
+proc-macro = true
+
+[features]
+token = []
