@@ -286,7 +286,7 @@ pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[cfg(feature = "token")]
 #[proc_macro]
-pub fn def_token_table(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     use std::collections::HashMap;
 
     use syn::Ident;
@@ -374,18 +374,18 @@ pub fn def_token_table(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 
             impl<I,E> parserc::syntax::Syntax<I,E> for #ident<I>
             where
-                I: parserc::inputs::Input + parserc::inputs::StartWith<&'static str> + Clone,
+                I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone,
                 E: parserc::errors::ParseError<Input = I>,
             {
                  fn parse(input: I) -> parserc::errors::Result<Self, I, E> {
                      use parserc::parser::Parser;
                      #(
-                         if let (Some(_),_) = parserc::parser::keyword(#lookahead).ok().parse(input.clone())? {
+                         if let (Some(_),_) = parserc::parser::keyword(#lookahead.as_bytes()).ok().parse(input.clone())? {
                              return Err(parserc::errors::ControlFlow::Recovable(E::expect_token(#key,input)));
                          }
                      )*
 
-                     parserc::parser::keyword(#key)
+                     parserc::parser::keyword(#key.as_bytes())
                          .map(|v| Self(v))
                          .map_err(|_:E| E::expect_token(#key,input.clone()) )
                          .parse(input.clone())
@@ -420,7 +420,7 @@ pub fn def_token_table(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
         #[input(I)]
         pub enum #ident<I>
         where
-            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static str> + Clone
+            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone
         {
             #(#variants),*
         }

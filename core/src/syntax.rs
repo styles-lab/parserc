@@ -13,7 +13,7 @@ use crate::{
 pub use parserc_derive::Syntax;
 
 #[cfg(feature = "token")]
-pub use parserc_derive::def_token_table;
+pub use parserc_derive::tokens;
 
 struct SyntaxParser<S, E, T>(PhantomData<S>, PhantomData<E>, PhantomData<T>);
 

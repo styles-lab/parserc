@@ -3,18 +3,20 @@ use std::fmt::Debug;
 use parserc::{
     errors::{ControlFlow, ErrorKind},
     inputs::{Input, StartWith},
-    syntax::{Syntax, def_token_table},
+    syntax::{Syntax, tokens},
 };
 
-def_token_table!(match Token {
+tokens!(match Token {
     "{" => LeftBracket,
     "{{" => LeftBracketBracket,
     "}" => RightBracket,
     "}}" => RightBracketBracket,
+    "\r\n" => NewLine,
 });
 
 #[derive(Syntax, PartialEq, Debug)]
 #[input(&'a str)]
+#[error(ErrorKind<&'a str>)]
 pub struct Mock<'a> {
     pub f1: LeftBracket<&'a str>,
     #[fatal]
@@ -25,7 +27,7 @@ pub struct Mock<'a> {
 #[input(I)]
 pub struct Mock2<I>
 where
-    I: Input + Clone + StartWith<&'static str>,
+    I: Input + Clone + StartWith<&'static [u8]>,
 {
     pub f1: LeftBracketBracket<I>,
     #[fatal]
@@ -33,7 +35,7 @@ where
 }
 
 #[test]
-fn test_token_lookahead() {
+fn test_syntax() {
     assert_eq!(
         Token::parse("{{"),
         Ok((Token::LeftBracketBracket(LeftBracketBracket("{{")), ""))
@@ -66,5 +68,15 @@ fn test_token_lookahead() {
             "{",
             "{{}".to_string()
         )))
+    );
+
+    assert_eq!(
+        Mock::parse("{"),
+        Err(ControlFlow::Fatal(ErrorKind::Token("}", "".to_string())))
+    );
+
+    assert_eq!(
+        <NewLine<_> as Syntax<_, ErrorKind<_>>>::parse(b"\r\n".as_slice()),
+        Ok((NewLine(b"\r\n".as_slice()), "".as_bytes()))
     );
 }
