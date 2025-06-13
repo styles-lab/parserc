@@ -84,7 +84,7 @@ def_tuple_syntax!();
 /// An extension trait that adds `parse` func to `Input`.
 pub trait SyntaxEx: Input {
     /// Parse a specific `Syntax` type.
-    fn parse<S, E>(self) -> Result<S, Self, E>
+    fn syntax<S, E>(self) -> Result<S, Self, E>
     where
         Self: Sized,
         S: Syntax<Self, E>,
@@ -94,7 +94,7 @@ pub trait SyntaxEx: Input {
     }
 
     /// Parse a specific `Syntax` type.
-    fn ensure_parse<S, E>(self) -> Result<S, Self, E>
+    fn ensure_syntax<S, E>(self) -> Result<S, Self, E>
     where
         Self: Sized,
         S: Syntax<Self, E>,
@@ -105,6 +105,81 @@ pub trait SyntaxEx: Input {
 }
 
 impl<I> SyntaxEx for I where I: Input {}
+
+/// A short syntax for grouping token that surrounds a syntax body.
+#[derive(Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Delimiter<Start, End, Body> {
+    /// Syntax start token.
+    pub start: Start,
+    /// Syntax end token.
+    pub end: End,
+    /// Syntax body.
+    pub body: Body,
+}
+
+impl<I, E, Start, End, Body> Syntax<I, E> for Delimiter<Start, End, Body>
+where
+    I: Input,
+    E: ParseError<Input = I>,
+    Start: Syntax<I, E>,
+    End: Syntax<I, E>,
+    Body: Syntax<I, E>,
+{
+    fn parse(input: I) -> Result<Self, I, E> {
+        let (start, input) = Start::parse(input)?;
+        let (body, input) = Body::into_parser().fatal().parse(input)?;
+        let (end, input) = End::into_parser().fatal().parse(input)?;
+
+        Ok((Self { start, body, end }, input))
+    }
+}
+
+/// A punctuated sequence of syntax tree nodes of type T separated by punctuation of type P.
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Punctuated<T, P> {
+    /// (T,P) pairs
+    pub pairs: Vec<(T, P)>,
+    /// individual tail `T`
+    pub tail: Option<Box<T>>,
+}
+
+impl<T, P, I, E> Syntax<I, E> for Punctuated<T, P>
+where
+    T: Syntax<I, E>,
+    P: Syntax<I, E>,
+    E: ParseError<Input = I>,
+    I: Input + Clone,
+{
+    fn parse(mut input: I) -> Result<Self, I, E> {
+        let mut pairs = vec![];
+
+        loop {
+            let t;
+            (t, input) = T::into_parser().ok().parse(input)?;
+
+            let Some(t) = t else {
+                return Ok((Self { pairs, tail: None }, input));
+            };
+
+            let p;
+            (p, input) = P::into_parser().ok().parse(input)?;
+
+            let Some(p) = p else {
+                return Ok((
+                    Self {
+                        pairs,
+                        tail: Some(Box::new(t)),
+                    },
+                    input,
+                ));
+            };
+
+            pairs.push((t, p));
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

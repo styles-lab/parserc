@@ -72,11 +72,11 @@ fn drive_fields(fields: &mut Fields) -> Vec<(proc_macro2::TokenStream, proc_macr
 
             let let_stmt = if fatal_fields.contains(&offset) {
                 quote! {
-                    let (#variable,input) = SyntaxEx::ensure_parse(input)?;
+                    let (#variable,input) = SyntaxEx::ensure_syntax(input)?;
                 }
             } else {
                 quote! {
-                    let (#variable,input) = SyntaxEx::parse(input)?;
+                    let (#variable,input) = SyntaxEx::syntax(input)?;
                 }
             };
 

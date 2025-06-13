@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use parserc::{
     errors::{ControlFlow, ErrorKind},
     inputs::{Input, StartWith},
-    syntax::{Syntax, tokens},
+    syntax::{Delimiter, Punctuated, Syntax, tokens},
 };
 
 tokens!(match Token {
@@ -12,6 +12,7 @@ tokens!(match Token {
     "}" => RightBracket,
     "}}" => RightBracketBracket,
     "\r\n" => NewLine,
+    "," => Comma,
 });
 
 #[derive(Syntax, PartialEq, Debug)]
@@ -78,5 +79,73 @@ fn test_syntax() {
     assert_eq!(
         <NewLine<_> as Syntax<_, ErrorKind<_>>>::parse(b"\r\n".as_slice()),
         Ok((NewLine(b"\r\n".as_slice()), "".as_bytes()))
+    );
+}
+
+type List<'a> = Punctuated<Mock<'a>, Comma<&'a str>>;
+
+#[test]
+fn test_punctuated() {
+    assert_eq!(
+        List::parse("{},{}"),
+        Ok((
+            Punctuated {
+                pairs: vec![(
+                    Mock {
+                        f1: LeftBracket("{"),
+                        f2: RightBracket("}")
+                    },
+                    Comma(",")
+                )],
+                tail: Some(Box::new(Mock {
+                    f1: LeftBracket("{"),
+                    f2: RightBracket("}")
+                }))
+            },
+            ""
+        ))
+    );
+
+    assert_eq!(
+        List::parse("{},{},"),
+        Ok((
+            Punctuated {
+                pairs: vec![
+                    (
+                        Mock {
+                            f1: LeftBracket("{"),
+                            f2: RightBracket("}")
+                        },
+                        Comma(",")
+                    ),
+                    (
+                        Mock {
+                            f1: LeftBracket("{"),
+                            f2: RightBracket("}")
+                        },
+                        Comma(",")
+                    )
+                ],
+                tail: None
+            },
+            ""
+        ))
+    );
+}
+
+#[test]
+fn test_delimiter() {
+    type D<'a> = Delimiter<LeftBracket<&'a str>, RightBracket<&'a str>, Comma<&'a str>>;
+
+    assert_eq!(
+        <D as Syntax<_, ErrorKind<_>>>::parse("{,}"),
+        Ok((
+            Delimiter {
+                start: LeftBracket("{"),
+                end: RightBracket("}"),
+                body: Comma(",")
+            },
+            ""
+        ))
     );
 }
