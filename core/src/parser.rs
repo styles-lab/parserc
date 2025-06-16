@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    errors::{ControlFlow, ParseError, Result},
+    errors::{ControlFlow, ErrorKind, ParseError, Result},
     inputs::{Find, Input, Item, StartWith},
 };
 
@@ -14,7 +14,7 @@ where
 {
     type Output;
     /// error type returns by this `Parser`.
-    type Error: ParseError<Input = I>;
+    type Error: ParseError;
 
     /// Consumes itself and parses the input stream to generate the `output` product.
     fn parse(self, input: I) -> Result<Self::Output, I, Self::Error>;
@@ -43,7 +43,7 @@ where
         I: Clone,
         F: FnOnce(Self::Error) -> E,
         Self: Sized,
-        E: ParseError<Input = I>,
+        E: ParseError,
     {
         MapErr(self, f)
     }
@@ -80,7 +80,7 @@ impl<O, I, E, F> Parser<I> for F
 where
     I: Input,
     F: FnOnce(I) -> Result<O, I, E>,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     type Output = O;
     type Error = E;
@@ -136,7 +136,7 @@ where
     I: Input,
     P: Parser<I>,
     F: FnOnce(P::Error) -> E,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     type Output = P::Output;
     type Error = E;
@@ -178,7 +178,7 @@ struct Or<L, R>(L, R);
 impl<L, R, I, O, E> Parser<I> for Or<L, R>
 where
     I: Input + Clone,
-    E: ParseError<Input = I>,
+    E: ParseError,
     L: Parser<I, Output = O, Error = E>,
     R: Parser<I, Output = O, Error = E>,
 {
@@ -199,7 +199,7 @@ where
 pub const fn next<I, E>(item: I::Item) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     move |mut input: I| {
         if let Some(next) = input.iter().next() {
@@ -207,21 +207,18 @@ where
                 return Ok((input.split_to(item.len()), input));
             }
 
-            Err(ControlFlow::Recovable(E::expect_next(item, input)))
+            Err(ControlFlow::Recovable(ErrorKind::Next.into()))
         } else {
-            Err(ControlFlow::Incomplete(E::expect_next(item, input)))
+            Err(ControlFlow::Incomplete(ErrorKind::Next.into()))
         }
     }
 }
 
 /// A parser match next item by `F`, otherwise raise an error.
-pub const fn next_if<I, E, F>(
-    diagnosis: &'static str,
-    f: F,
-) -> impl Parser<I, Output = I, Error = E>
+pub const fn next_if<I, E, F>(f: F) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
     F: FnOnce(I::Item) -> bool,
 {
     move |mut input: I| {
@@ -230,9 +227,9 @@ where
                 return Ok((input.split_to(next.len()), input));
             }
 
-            Err(ControlFlow::Recovable(E::expect_next_if(diagnosis, input)))
+            Err(ControlFlow::Recovable(ErrorKind::NextIf.into()))
         } else {
-            Err(ControlFlow::Incomplete(E::expect_next_if(diagnosis, input)))
+            Err(ControlFlow::Incomplete(ErrorKind::NextIf.into()))
         }
     }
 }
@@ -242,14 +239,14 @@ where
 pub fn keyword<KW, I, E>(keyword: KW) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input + StartWith<KW>,
-    E: ParseError<Input = I>,
+    E: ParseError,
     KW: Debug + Clone,
 {
     move |mut input: I| {
         if let Some(len) = input.starts_with(keyword.clone()) {
             Ok((input.split_to(len), input))
         } else {
-            Err(ControlFlow::Recovable(E::expect_start_with(keyword, input)))
+            Err(ControlFlow::Recovable(ErrorKind::Keyword.into()))
         }
     }
 }
@@ -261,14 +258,14 @@ pub fn take_until<I, E, K>(keyword: K) -> impl Parser<I, Output = I, Error = E>
 where
     K: Debug + Clone,
     I: Input + Find<K>,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     move |mut input: I| {
         if let Some(offset) = input.find(keyword.clone()) {
             return Ok((input.split_to(offset), input));
         }
 
-        return Err(ControlFlow::Incomplete(E::expect_find(keyword, input)));
+        return Err(ControlFlow::Incomplete(ErrorKind::TakeUntil.into()));
     }
 }
 
@@ -278,7 +275,7 @@ where
 pub fn take_while<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
     F: FnMut(I::Item) -> bool,
 {
     move |mut input: I| {
@@ -307,7 +304,7 @@ where
 pub fn take_till<I, E, F>(mut cond: F) -> impl Parser<I, Output = I, Error = E>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
     F: FnMut(I::Item) -> bool,
 {
     take_while(move |c: I::Item| !cond(c))
@@ -322,20 +319,14 @@ mod tests {
 
     #[test]
     fn test_next() {
-        assert_eq!(next::<_, ErrorKind<_>>('c').parse("c"), Ok(("c", "")));
+        assert_eq!(next::<_, ErrorKind>('c').parse("c"), Ok(("c", "")));
         assert_eq!(
             next('c').parse("a"),
-            Err(ControlFlow::Recovable(ErrorKind::Next(
-                'c',
-                "a".to_string()
-            )))
+            Err(ControlFlow::Recovable(ErrorKind::Next))
         );
         assert_eq!(
             next('c').parse(""),
-            Err(ControlFlow::Incomplete(ErrorKind::Next(
-                'c',
-                "".to_string()
-            )))
+            Err(ControlFlow::Incomplete(ErrorKind::Next))
         );
     }
 }

@@ -19,7 +19,7 @@ struct SyntaxParser<S, E, T>(PhantomData<S>, PhantomData<E>, PhantomData<T>);
 
 impl<I, E, T> Parser<I> for SyntaxParser<I, E, T>
 where
-    E: ParseError<Input = I>,
+    E: ParseError,
     I: Input,
     T: Syntax<I, E>,
 {
@@ -36,7 +36,7 @@ where
 pub trait Syntax<I, E>: Sized
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     /// Parse input data and construct a new `Syntax` instance.
     fn parse(input: I) -> Result<Self, I, E>;
@@ -50,7 +50,7 @@ where
 impl<T, I, E> Syntax<I, E> for PhantomData<T>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     fn parse(input: I) -> Result<Self, I, E> {
         Ok((Self::default(), input))
@@ -61,7 +61,7 @@ impl<T, I, E> Syntax<I, E> for Option<T>
 where
     T: Syntax<I, E>,
     I: Input + Clone,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     fn parse(input: I) -> Result<Self, I, E> {
         T::into_parser().ok().parse(input)
@@ -72,10 +72,33 @@ impl<T, I, E> Syntax<I, E> for Box<T>
 where
     T: Syntax<I, E>,
     I: Input + Clone,
-    E: ParseError<Input = I>,
+    E: ParseError,
 {
     fn parse(input: I) -> Result<Self, I, E> {
         T::into_parser().boxed().parse(input)
+    }
+}
+
+impl<T, I, E> Syntax<I, E> for Vec<T>
+where
+    T: Syntax<I, E>,
+    I: Input + Clone,
+    E: ParseError,
+{
+    fn parse(mut input: I) -> Result<Self, I, E> {
+        let mut elms = vec![];
+        loop {
+            let elm;
+            (elm, input) = T::into_parser().ok().parse(input)?;
+
+            let Some(elm) = elm else {
+                break;
+            };
+
+            elms.push(elm);
+        }
+
+        Ok((elms, input))
     }
 }
 
@@ -88,7 +111,7 @@ pub trait SyntaxEx: Input {
     where
         Self: Sized,
         S: Syntax<Self, E>,
-        E: ParseError<Input = Self>,
+        E: ParseError,
     {
         S::parse(self)
     }
@@ -98,7 +121,7 @@ pub trait SyntaxEx: Input {
     where
         Self: Sized,
         S: Syntax<Self, E>,
-        E: ParseError<Input = Self>,
+        E: ParseError,
     {
         S::into_parser().fatal().parse(self)
     }
@@ -121,7 +144,7 @@ pub struct Delimiter<Start, End, Body> {
 impl<I, E, Start, End, Body> Syntax<I, E> for Delimiter<Start, End, Body>
 where
     I: Input,
-    E: ParseError<Input = I>,
+    E: ParseError,
     Start: Syntax<I, E>,
     End: Syntax<I, E>,
     Body: Syntax<I, E>,
@@ -149,7 +172,7 @@ impl<T, P, I, E> Syntax<I, E> for Punctuated<T, P>
 where
     T: Syntax<I, E>,
     P: Syntax<I, E>,
-    E: ParseError<Input = I>,
+    E: ParseError,
     I: Input + Clone,
 {
     fn parse(mut input: I) -> Result<Self, I, E> {
@@ -194,7 +217,7 @@ mod tests {
     impl<I, E> Syntax<I, E> for Mock
     where
         I: Input,
-        E: ParseError<Input = I>,
+        E: ParseError,
     {
         fn parse(input: I) -> crate::errors::Result<Self, I, E> {
             Ok((Mock, input))
@@ -203,6 +226,6 @@ mod tests {
 
     #[test]
     fn test_tuple() {
-        <(Mock, Mock) as Syntax<_, ErrorKind<_>>>::parse("hello").unwrap();
+        <(Mock, Mock) as Syntax<_, ErrorKind>>::parse("hello").unwrap();
     }
 }

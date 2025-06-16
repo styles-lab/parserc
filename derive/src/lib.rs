@@ -86,6 +86,22 @@ fn drive_fields(fields: &mut Fields) -> Vec<(proc_macro2::TokenStream, proc_macr
 }
 
 fn drive_syntax_enum(mut item: ItemEnum) -> proc_macro::TokenStream {
+    let input = if let Some(input) = syntax_input_type(&item.attrs) {
+        input
+    } else {
+        quote! {
+            I
+        }
+    };
+
+    let error = if let Some(error) = syntax_error_type(&item.attrs) {
+        error
+    } else {
+        quote! {
+            parserc::errors::ErrorKind
+        }
+    };
+
     let item_ident = item.ident.clone();
     let variants_len = item.variants.len();
 
@@ -150,23 +166,6 @@ fn drive_syntax_enum(mut item: ItemEnum) -> proc_macro::TokenStream {
         })
         .collect::<Vec<_>>();
 
-    let Some(input) = syntax_input_type(&item.attrs) else {
-        return Error::new(
-            item.span(),
-            "Syntax: requires attribute `#[input(...)]` to be specified",
-        )
-        .into_compile_error()
-        .into();
-    };
-
-    let error = if let Some(error) = syntax_error_type(&item.attrs) {
-        error
-    } else {
-        quote! {
-            parserc::errors::ErrorKind<#input>
-        }
-    };
-
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
 
     quote! {
@@ -184,20 +183,19 @@ fn drive_syntax_enum(mut item: ItemEnum) -> proc_macro::TokenStream {
 }
 
 fn drive_syntax_struct(mut item: ItemStruct) -> proc_macro::TokenStream {
-    let Some(input) = syntax_input_type(&item.attrs) else {
-        return Error::new(
-            item.span(),
-            "Syntax: requires attribute `#[input(...)]` to be specified",
-        )
-        .into_compile_error()
-        .into();
+    let input = if let Some(input) = syntax_input_type(&item.attrs) {
+        input
+    } else {
+        quote! {
+            I
+        }
     };
 
     let error = if let Some(error) = syntax_error_type(&item.attrs) {
         error
     } else {
         quote! {
-            parserc::errors::ErrorKind<#input>
+            parserc::errors::ErrorKind
         }
     };
 
@@ -264,7 +262,7 @@ pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl<I,E, #(#types),*> Syntax<I,E> for (#(#types),*)
             where
                 I: Input,
-                E: ParseError<Input = I>,
+                E: ParseError,
                 #(#types: Syntax<I,E>),*
             {
                 fn parse(input: I) -> Result<Self, I, E> {
@@ -369,13 +367,14 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         stmts.push(quote! {
 
             #[doc=#doc]
-            #[derive(Debug,PartialEq)]
+            #[derive(Debug, PartialEq, Clone)]
+            #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
             pub struct #ident<I>(pub I);
 
             impl<I,E> parserc::syntax::Syntax<I,E> for #ident<I>
             where
-                I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone,
-                E: parserc::errors::ParseError<Input = I>,
+                I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + parserc::inputs::WithSpan + Clone,
+                E: parserc::errors::ParseError,
             {
                  fn parse(input: I) -> parserc::errors::Result<Self, I, E> {
                      use parserc::parser::Parser;
@@ -397,6 +396,7 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
 
     let mut variants = vec![];
+    let mut variant_stmts = vec![];
 
     let mut keys = tokens.keys().collect::<Vec<_>>();
 
@@ -407,22 +407,43 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         variants.push(quote! {
             #ident(#ident<I>)
         });
+
+        variant_stmts.push(quote! {
+            let (token,input) = #ident::into_parser().ok().parse(input)?;
+
+            if let Some(token) = token {
+                return Ok((Self::#ident(token),input));
+            }
+        });
     }
 
-    let ident = expr.expr;
+    let ident = &expr.expr;
+    let ident_name = expr.expr.to_token_stream().to_string();
 
     quote! {
         #(#stmts)*
 
         #[doc="Token parser"]
-        #[derive(Debug,PartialEq)]
-        #[derive(parserc::syntax::Syntax)]
-        #[input(I)]
+        #[derive(Debug, PartialEq, Clone)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         pub enum #ident<I>
         where
-            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone
+            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + parserc::inputs::WithSpan + Clone,
         {
             #(#variants),*
+        }
+
+        impl<I,E> parserc::syntax::Syntax<I,E> for #ident<I>
+        where
+            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + parserc::inputs::WithSpan + Clone,
+            E: parserc::errors::ParseError,
+        {
+             fn parse(input: I) -> parserc::errors::Result<Self, I, E> {
+                 use parserc::parser::Parser;
+                 #(#variant_stmts)*
+
+                 return Err(parserc::errors::ControlFlow::Recovable(E::expect_token(#ident_name,input)));
+             }
         }
     }
     .into()
