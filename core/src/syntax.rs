@@ -107,7 +107,7 @@ def_tuple_syntax!();
 /// An extension trait that adds `parse` func to `Input`.
 pub trait SyntaxEx: Input {
     /// Parse a specific `Syntax` type.
-    fn syntax<S, E>(self) -> Result<S, Self, E>
+    fn parse<S, E>(self) -> Result<S, Self, E>
     where
         Self: Sized,
         S: Syntax<Self, E>,
@@ -117,7 +117,7 @@ pub trait SyntaxEx: Input {
     }
 
     /// Parse a specific `Syntax` type.
-    fn ensure_syntax<S, E>(self) -> Result<S, Self, E>
+    fn ensure_parse<S, E>(self) -> Result<S, Self, E>
     where
         Self: Sized,
         S: Syntax<Self, E>,
