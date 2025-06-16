@@ -5,7 +5,7 @@ edition = "2024"
 license = "MIT"
 name = "parserc-derive"
 repository = "https://github.com/styles-lab/parserc"
-version = "0.8.0"
+version = "0.8.1"
 
 [dependencies]
 proc-macro2 = "^1"
