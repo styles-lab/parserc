@@ -3,7 +3,7 @@
 use std::{
     fmt::Debug,
     iter::{Copied, Enumerate},
-    ops, slice,
+    slice,
     str::{Bytes, CharIndices, Chars},
 };
 
@@ -21,37 +21,35 @@ pub struct Span {
 
 impl Span {
     /// Extend span to the start of the `to`.
-    pub fn extend_to(self, to: Span) -> Span {
-        assert!(to.offset >= self.offset);
-
-        Span {
-            offset: self.offset,
-            len: to.offset - self.offset + to.len,
+    pub fn extend_to(lhs: Option<Span>, rhs: Option<Span>) -> Option<Span> {
+        match (lhs, rhs) {
+            (None, None) => None,
+            (None, Some(rhs)) => Some(rhs),
+            (Some(lhs), None) => Some(lhs),
+            (Some(lhs), Some(rhs)) => {
+                assert!(rhs.offset >= lhs.offset);
+                Some(Span {
+                    offset: lhs.offset,
+                    len: rhs.offset - lhs.offset,
+                })
+            }
         }
     }
 
     /// Extend span to the end of the `to`.
-    pub fn extend_to_inclusive(self, to: Span) -> Span {
-        assert!(to.offset >= self.offset);
-
-        Span {
-            offset: self.offset,
-            len: to.offset - self.offset + to.len,
+    pub fn extend_to_inclusive(lhs: Option<Span>, rhs: Option<Span>) -> Option<Span> {
+        match (lhs, rhs) {
+            (None, None) => None,
+            (None, Some(rhs)) => Some(rhs),
+            (Some(lhs), None) => Some(lhs),
+            (Some(lhs), Some(rhs)) => {
+                assert!(rhs.offset >= lhs.offset);
+                Some(Span {
+                    offset: lhs.offset,
+                    len: rhs.offset - lhs.offset + rhs.len,
+                })
+            }
         }
-    }
-}
-
-impl ops::Add for Span {
-    type Output = Span;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        self.extend_to_inclusive(rhs)
-    }
-}
-
-impl ops::AddAssign for Span {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
     }
 }
 
@@ -141,31 +139,20 @@ pub trait Input: Diagnosis + PartialEq + Debug {
 
     /// Returns an immutable iterator over source code chars.
     fn iter_indices(&self) -> Self::IterIndices;
-}
 
-/// With additional span supports.
-pub trait WithSpan: Input {
     /// Returns the start position of this input in the whole source code.
-    fn start(&self) -> usize;
+    fn start(&self) -> Option<usize>;
 
     /// Returns the region of this input in the whole source code.
     #[inline(always)]
-    fn span(&self) -> Span {
-        return Span {
-            offset: self.start(),
-            len: self.len(),
-        };
-    }
-}
-
-impl<I> From<I> for Span
-where
-    I: WithSpan,
-{
-    fn from(value: I) -> Self {
-        Span {
-            offset: value.start(),
-            len: value.len(),
+    fn span(&self) -> Option<Span> {
+        if let Some(offset) = self.start() {
+            Some(Span {
+                offset,
+                len: self.len(),
+            })
+        } else {
+            None
         }
     }
 }
@@ -206,6 +193,10 @@ impl<'a> Input for &'a str {
     #[inline(always)]
     fn iter_indices(&self) -> Self::IterIndices {
         self.char_indices()
+    }
+
+    fn start(&self) -> Option<usize> {
+        None
     }
 }
 
@@ -313,6 +304,10 @@ impl<'a> Input for &'a [u8] {
     fn iter_indices(&self) -> Self::IterIndices {
         self.iter().enumerate()
     }
+
+    fn start(&self) -> Option<usize> {
+        None
+    }
 }
 
 impl<'a> Diagnosis for &'a [u8] {
@@ -410,6 +405,10 @@ impl<'a> Input for (usize, &'a str) {
     fn iter_indices(&self) -> Self::IterIndices {
         self.1.char_indices()
     }
+
+    fn start(&self) -> Option<usize> {
+        Some(self.0)
+    }
 }
 
 impl<'a> Diagnosis for (usize, &'a str) {
@@ -419,13 +418,6 @@ impl<'a> Diagnosis for (usize, &'a str) {
         } else {
             format!("{}", self.1)
         }
-    }
-}
-
-impl<'a> WithSpan for (usize, &'a str) {
-    #[inline(always)]
-    fn start(&self) -> usize {
-        self.0
     }
 }
 
@@ -527,6 +519,10 @@ impl<'a> Input for (usize, &'a [u8]) {
     fn iter_indices(&self) -> Self::IterIndices {
         self.iter().enumerate()
     }
+
+    fn start(&self) -> Option<usize> {
+        Some(self.0)
+    }
 }
 
 impl<'a> Diagnosis for (usize, &'a [u8]) {
@@ -542,13 +538,6 @@ impl<'a> Diagnosis for (usize, &'a [u8]) {
 impl<'a> AsBytes for (usize, &'a [u8]) {
     fn as_bytes(&self) -> &[u8] {
         self.1
-    }
-}
-
-impl<'a> WithSpan for (usize, &'a [u8]) {
-    #[inline(always)]
-    fn start(&self) -> usize {
-        self.0
     }
 }
 
@@ -603,7 +592,6 @@ pub mod lang {
         + Find<&'static str>
         + Find<&'static [u8]>
         + Clone
-        + WithSpan
         + Debug
         + PartialEq
     {
@@ -674,6 +662,10 @@ pub mod lang {
         fn iter_indices(&self) -> Self::IterIndices {
             self.iter().enumerate()
         }
+
+        fn start(&self) -> Option<usize> {
+            Some(self.offset)
+        }
     }
 
     impl<'a> Diagnosis for TokenStream<'a> {
@@ -743,13 +735,6 @@ pub mod lang {
     impl<'a, const N: usize> Find<&[u8; N]> for TokenStream<'a> {
         fn find(&self, needle: &[u8; N]) -> Option<usize> {
             memmem::find(self.as_bytes(), needle)
-        }
-    }
-
-    impl<'a> WithSpan for TokenStream<'a> {
-        #[inline(always)]
-        fn start(&self) -> usize {
-            self.offset
         }
     }
 

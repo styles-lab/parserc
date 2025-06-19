@@ -6,7 +6,7 @@ use parserc_derive::def_tuple_syntax;
 
 use crate::{
     errors::{ParseError, Result},
-    inputs::Input,
+    inputs::{Input, Span},
     parser::Parser,
 };
 
@@ -14,6 +14,12 @@ pub use parserc_derive::Syntax;
 
 #[cfg(feature = "token")]
 pub use parserc_derive::tokens;
+
+/// A trait that support convert item into [`Span`]
+pub trait AsSpan {
+    /// convert self into [`Span`]
+    fn as_span(&self) -> Option<Span>;
+}
 
 struct SyntaxParser<S, E, T>(PhantomData<S>, PhantomData<E>, PhantomData<T>);
 
@@ -68,6 +74,18 @@ where
     }
 }
 
+impl<T> AsSpan for Option<T>
+where
+    T: AsSpan,
+{
+    fn as_span(&self) -> Option<crate::inputs::Span> {
+        match self {
+            Some(v) => v.as_span(),
+            None => None,
+        }
+    }
+}
+
 impl<T, I, E> Syntax<I, E> for Box<T>
 where
     T: Syntax<I, E>,
@@ -76,6 +94,15 @@ where
 {
     fn parse(input: I) -> Result<Self, I, E> {
         T::into_parser().boxed().parse(input)
+    }
+}
+
+impl<T> AsSpan for Box<T>
+where
+    T: AsSpan,
+{
+    fn as_span(&self) -> Option<Span> {
+        self.as_ref().as_span()
     }
 }
 
@@ -99,6 +126,21 @@ where
         }
 
         Ok((elms, input))
+    }
+}
+
+impl<T> AsSpan for Vec<T>
+where
+    T: AsSpan,
+{
+    fn as_span(&self) -> Option<crate::inputs::Span> {
+        let mut lhs = None;
+
+        for v in self {
+            lhs = Span::extend_to_inclusive(lhs, v.as_span());
+        }
+
+        lhs
     }
 }
 
@@ -158,6 +200,17 @@ where
     }
 }
 
+impl<Start, End, Body> AsSpan for Delimiter<Start, End, Body>
+where
+    Start: AsSpan,
+    End: AsSpan,
+    Body: AsSpan,
+{
+    fn as_span(&self) -> Option<Span> {
+        Span::extend_to_inclusive(self.start.as_span(), self.end.as_span())
+    }
+}
+
 /// A punctuated sequence of syntax tree nodes of type T separated by punctuation of type P.
 #[derive(Debug, PartialEq, PartialOrd, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -204,6 +257,16 @@ where
     }
 }
 
+impl<T, P> AsSpan for Punctuated<T, P>
+where
+    T: AsSpan,
+    P: AsSpan,
+{
+    fn as_span(&self) -> Option<Span> {
+        Span::extend_to_inclusive(self.pairs.as_span(), self.tail.as_span())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -228,4 +291,14 @@ mod tests {
     fn test_tuple() {
         <(Mock, Mock) as Syntax<_, ErrorKind>>::parse("hello").unwrap();
     }
+
+    // #[test]
+    // fn test_as_span() {
+    //     assert_eq!(
+    //         vec![TokenStream::from("hello"), TokenStream::from((10, "good"))].as_span(),
+    //         Some(Span { offset: 0, len: 14 }),
+    //     );
+
+    //     assert_eq!(vec!["hello", "world"].as_span(), None);
+    // }
 }

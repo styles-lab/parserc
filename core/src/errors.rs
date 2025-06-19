@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use crate::inputs::{Input, WithSpan};
+use crate::inputs::Input;
 
 #[derive(thiserror::Error, Debug, PartialEq)]
 pub enum ErrorKind {
@@ -20,11 +20,11 @@ pub enum ErrorKind {
 
 /// Diagnosis error type that returns by `parsers` should implement this trait.
 pub trait ParseError: From<ErrorKind> + Debug + PartialEq {
-    fn expect_token<I: Input + WithSpan>(name: &'static str, input: I) -> Self;
+    fn expect_token<I: Input>(name: &'static str, input: I) -> Self;
 }
 
 impl ParseError for ErrorKind {
-    fn expect_token<I: Input + WithSpan>(_: &'static str, _: I) -> Self {
+    fn expect_token<I: Input>(_: &'static str, _: I) -> Self {
         Self::Token
     }
 }
