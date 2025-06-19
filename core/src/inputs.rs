@@ -3,7 +3,7 @@
 use std::{
     fmt::Debug,
     iter::{Copied, Enumerate},
-    slice,
+    ops, slice,
     str::{Bytes, CharIndices, Chars},
 };
 
@@ -17,6 +17,42 @@ pub struct Span {
     pub offset: usize,
     /// Span length.
     pub len: usize,
+}
+
+impl Span {
+    /// Extend span to the start of the `to`.
+    pub fn extend_to(self, to: Span) -> Span {
+        assert!(to.offset >= self.offset);
+
+        Span {
+            offset: self.offset,
+            len: to.offset - self.offset + to.len,
+        }
+    }
+
+    /// Extend span to the end of the `to`.
+    pub fn extend_to_inclusive(self, to: Span) -> Span {
+        assert!(to.offset >= self.offset);
+
+        Span {
+            offset: self.offset,
+            len: to.offset - self.offset + to.len,
+        }
+    }
+}
+
+impl ops::Add for Span {
+    type Output = Span;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        self.extend_to_inclusive(rhs)
+    }
+}
+
+impl ops::AddAssign for Span {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
 }
 
 /// An extension trait provides extra `starts_with` func to `Input`.
