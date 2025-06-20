@@ -25,6 +25,15 @@ pub struct Mock<'a> {
 }
 
 #[derive(Syntax, PartialEq, Debug)]
+#[input(TokenStream<'a>)]
+pub enum MockEnum<'a> {
+    LeftBracket(LeftBracket<TokenStream<'a>>),
+    RightBracket {
+        bracket: RightBracket<TokenStream<'a>>,
+    },
+}
+
+#[derive(Syntax, PartialEq, Debug)]
 #[input(I)]
 pub struct Mock2<I>
 where

@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Error, ExprMatch, Fields, Item, ItemEnum, ItemStruct, Type, parse_macro_input,
-    spanned::Spanned,
+    Attribute, Error, ExprMatch, Fields, Index, Item, ItemEnum, ItemStruct, Type,
+    parse_macro_input, spanned::Spanned,
 };
 
 #[proc_macro_derive(Syntax, attributes(error, input, fatal))]
@@ -41,13 +41,13 @@ fn syntax_input_type(attrs: &[Attribute]) -> Option<proc_macro2::TokenStream> {
     None
 }
 
-fn drive_fields(
-    fields: &Fields,
-) -> Vec<(
-    proc_macro2::TokenStream,
-    proc_macro2::TokenStream,
-    proc_macro2::TokenStream,
-)> {
+struct DriveFields {
+    init_stmt: proc_macro2::TokenStream,
+    parse_stmt: proc_macro2::TokenStream,
+    span_stmt: proc_macro2::TokenStream,
+}
+
+fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
     let mut fatal_fields = HashSet::new();
 
     for (offset, field) in fields.iter().enumerate() {
@@ -61,39 +61,64 @@ fn drive_fields(
         }
     }
 
-    fields
-        .iter()
-        .enumerate()
-        .map(|(offset, field)| {
-            let variable = if let Some(ident) = &field.ident {
-                ident.to_token_stream()
-            } else {
-                format!("variable_{}", offset).parse().unwrap()
-            };
+    let mut init_stmts = vec![];
+    let mut parse_stmts = vec![];
+    let mut span_stmts = vec![];
 
-            let let_span = if let Some(ident) = &field.ident {
-                quote! {
-                    let lhs = parserc::inputs::Span::extend_to_inclusive(lhs, self.#ident.as_span());
-                }
+    for (offset, field) in fields.iter().enumerate() {
+        if let Some(ident) = &field.ident {
+            init_stmts.push(ident.to_token_stream());
+            if variant_fields {
+                span_stmts.push(quote! {
+                    let lhs = lhs.join(#ident.as_span());
+                });
             } else {
-                quote! {
-                    let lhs = parserc::inputs::Span::extend_to_inclusive(lhs, self.#offset.as_span());
-                }
-            };
+                span_stmts.push(quote! {
+                    let lhs = lhs.join(self.#ident.as_span());
+                });
+            }
+        } else {
+            let variable: proc_macro2::TokenStream =
+                format!("variable_{}", offset).parse().unwrap();
 
-            let let_stmt = if fatal_fields.contains(&offset) {
-                quote! {
-                    let (#variable,input) = SyntaxEx::ensure_parse(input)?;
-                }
+            init_stmts.push(variable.clone());
+
+            if variant_fields {
+                span_stmts.push(quote! {
+                    let lhs = lhs.join(#variable.as_span());
+                });
             } else {
-                quote! {
-                    let (#variable,input) = SyntaxEx::parse(input)?;
-                }
-            };
+                let index = Index::from(offset);
+                span_stmts.push(quote! {
+                    let lhs = lhs.join(self.#index.as_span());
+                });
+            }
+        }
 
-            (variable, let_span, let_stmt)
-        })
-        .collect()
+        let variable = init_stmts.last().unwrap();
+
+        if fatal_fields.contains(&offset) {
+            parse_stmts.push(quote! {
+                let (#variable,input) = SyntaxEx::ensure_parse(input)?;
+            });
+        } else {
+            parse_stmts.push(quote! {
+                let (#variable,input) = SyntaxEx::parse(input)?;
+            });
+        };
+    }
+
+    DriveFields {
+        init_stmt: quote! {
+            #(#init_stmts),*
+        },
+        parse_stmt: quote! {
+            #(#parse_stmts)*
+        },
+        span_stmt: quote! {
+            #(#span_stmts)*
+        },
+    }
 }
 
 fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
@@ -120,28 +145,23 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
     let mut as_spans = vec![];
 
     for (index, v) in item.variants.iter().enumerate() {
-        let fields = drive_fields(&v.fields);
-        let mut variables = vec![];
-        let mut let_spans = vec![];
-        let mut let_stmts = vec![];
-
-        for (variable, let_span, stmt) in &fields {
-            variables.push(variable);
-            let_spans.push(let_span);
-            let_stmts.push(stmt);
-        }
+        let DriveFields {
+            init_stmt,
+            parse_stmt,
+            span_stmt,
+        } = drive_fields(&v.fields, true);
 
         let ident = &v.ident;
 
         let init_stmt = match v.fields {
             syn::Fields::Named(_) => {
                 quote! {
-                    (#item_ident::#ident { #(#variables),* },input)
+                    #item_ident::#ident { #init_stmt }
                 }
             }
             _ => {
                 quote! {
-                    (#item_ident::#ident(#(#variables),*),input)
+                    #item_ident::#ident(#init_stmt)
                 }
             }
         };
@@ -152,20 +172,20 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
 
         if variants_len == index + 1 {
             stmts.push(quote! {
-                let mut #ident = |mut input: I| {
-                    #(#let_stmts)*
+                let mut #ident = |mut input: #input| {
+                    #parse_stmt
 
-                    Ok(#init_stmt)
+                    Ok((#init_stmt,input))
                 };
 
                 #ident.parse(input)
             });
         } else {
             stmts.push(quote! {
-                let #ident = |mut input: I| {
-                    #(#let_stmts)*
+                let #ident = |mut input: #input| {
+                    #parse_stmt
 
-                    Ok(#init_stmt)
+                    Ok((#init_stmt,input))
                 };
 
                 let (#ident,input) = #ident.ok().parse(input)?;
@@ -179,7 +199,7 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
         as_spans.push(quote! {
             #init_stmt => {
                 let lhs = None;
-                #(#let_spans)*
+                #span_stmt
                 lhs
             }
         });
@@ -202,6 +222,8 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
         {
 
             fn as_span(&self) -> Option<parserc::inputs::Span> {
+                use parserc::inputs::SpanJoin;
+
                 match self {
                     #(#as_spans)*
                 }
@@ -230,26 +252,21 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
 
     let ident = &item.ident;
 
-    let fields = drive_fields(&item.fields);
-    let mut variables = vec![];
-    let mut let_spans = vec![];
-    let mut let_stmts = vec![];
-
-    for (variable, let_span, stmt) in &fields {
-        variables.push(variable);
-        let_spans.push(let_span);
-        let_stmts.push(stmt);
-    }
+    let DriveFields {
+        init_stmt,
+        parse_stmt,
+        span_stmt,
+    } = drive_fields(&item.fields, false);
 
     let init_stmt = match item.fields {
         syn::Fields::Named(_) => {
             quote! {
-                (Self { #(#variables),* },input)
+                (Self { #init_stmt },input)
             }
         }
         _ => {
             quote! {
-                (Self(#(#variables),*),input)
+                (Self(#init_stmt),input)
             }
         }
     };
@@ -264,7 +281,7 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
             fn parse(input: #input) -> parserc::errors::Result<Self, #input, #error> {
                 use parserc::parser::Parser;
                 use parserc::syntax::SyntaxEx;
-                #(#let_stmts)*
+                #parse_stmt
 
                 Ok(#init_stmt)
             }
@@ -274,9 +291,9 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
         {
 
             fn as_span(&self) -> Option<parserc::inputs::Span> {
+                use parserc::inputs::SpanJoin;
                 let lhs = None;
-                #(#let_spans)*
-
+                #span_stmt
                 lhs
             }
         }
@@ -332,7 +349,7 @@ pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     let mut lhs = None;
 
                     #(
-                        lhs = Span::extend_to_inclusive(lhs,#pos.as_span());
+                        lhs = lhs.join(#pos.as_span());
                     )*
 
                     lhs
@@ -461,7 +478,7 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 I: parserc::inputs::Input,
             {
                 fn as_span(&self) -> Option<parserc::inputs::Span> {
-                    self.0.span()
+                    self.0.as_span()
                 }
             }
         });

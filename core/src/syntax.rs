@@ -6,7 +6,7 @@ use parserc_derive::def_tuple_syntax;
 
 use crate::{
     errors::{ParseError, Result},
-    inputs::{Input, Span},
+    inputs::{Input, Span, SpanJoin},
     parser::Parser,
 };
 
@@ -137,7 +137,7 @@ where
         let mut lhs = None;
 
         for v in self {
-            lhs = Span::extend_to_inclusive(lhs, v.as_span());
+            lhs = lhs.join(v.as_span());
         }
 
         lhs
@@ -207,7 +207,7 @@ where
     Body: AsSpan,
 {
     fn as_span(&self) -> Option<Span> {
-        Span::extend_to_inclusive(self.start.as_span(), self.end.as_span())
+        self.start.as_span().join(self.end.as_span())
     }
 }
 
@@ -263,7 +263,7 @@ where
     P: AsSpan,
 {
     fn as_span(&self) -> Option<Span> {
-        Span::extend_to_inclusive(self.pairs.as_span(), self.tail.as_span())
+        self.pairs.as_span().join(self.tail.as_span())
     }
 }
 

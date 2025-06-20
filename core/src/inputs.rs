@@ -19,26 +19,14 @@ pub struct Span {
     pub len: usize,
 }
 
-impl Span {
-    /// Extend span to the start of the `to`.
-    pub fn extend_to(lhs: Option<Span>, rhs: Option<Span>) -> Option<Span> {
-        match (lhs, rhs) {
-            (None, None) => None,
-            (None, Some(rhs)) => Some(rhs),
-            (Some(lhs), None) => Some(lhs),
-            (Some(lhs), Some(rhs)) => {
-                assert!(rhs.offset >= lhs.offset);
-                Some(Span {
-                    offset: lhs.offset,
-                    len: rhs.offset - lhs.offset,
-                })
-            }
-        }
-    }
+/// An extension trait that add `join` fn to `Spans`
+pub trait SpanJoin<Rhs = Self> {
+    fn join(self, rhs: Rhs) -> Self;
+}
 
-    /// Extend span to the end of the `to`.
-    pub fn extend_to_inclusive(lhs: Option<Span>, rhs: Option<Span>) -> Option<Span> {
-        match (lhs, rhs) {
+impl SpanJoin for Option<Span> {
+    fn join(self, rhs: Self) -> Self {
+        match (self, rhs) {
             (None, None) => None,
             (None, Some(rhs)) => Some(rhs),
             (Some(lhs), None) => Some(lhs),
@@ -145,7 +133,7 @@ pub trait Input: Diagnosis + PartialEq + Debug {
 
     /// Returns the region of this input in the whole source code.
     #[inline(always)]
-    fn span(&self) -> Option<Span> {
+    fn as_span(&self) -> Option<Span> {
         if let Some(offset) = self.start() {
             Some(Span {
                 offset,
