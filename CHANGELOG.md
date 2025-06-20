@@ -10,7 +10,8 @@ Note: In this file, do not use the hard wrap in the middle of a sentence for com
 
 ## [0.9.0] - 2025-06-20
 
-- Remove `WithSpan`
+- Remove `WithSpan`,
+- add `SpanJoin`
 
 ## [0.8.2] - 2025-06-16
 
