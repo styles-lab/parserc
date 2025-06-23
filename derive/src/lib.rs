@@ -70,11 +70,11 @@ fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
             init_stmts.push(ident.to_token_stream());
             if variant_fields {
                 span_stmts.push(quote! {
-                    let lhs = lhs.join(#ident.as_span());
+                    lhs ^= #ident.to_span();
                 });
             } else {
                 span_stmts.push(quote! {
-                    let lhs = lhs.join(self.#ident.as_span());
+                    lhs ^= self.#ident.to_span();
                 });
             }
         } else {
@@ -85,12 +85,12 @@ fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
 
             if variant_fields {
                 span_stmts.push(quote! {
-                    let lhs = lhs.join(#variable.as_span());
+                    lhs ^= #variable.to_span();
                 });
             } else {
                 let index = Index::from(offset);
                 span_stmts.push(quote! {
-                    let lhs = lhs.join(self.#index.as_span());
+                    lhs ^= self.#index.to_span();
                 });
             }
         }
@@ -134,7 +134,7 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
         error
     } else {
         quote! {
-            parserc::errors::ErrorKind
+            parserc::errors::ErrorKind<<#input as parserc::input::Input>::Position>
         }
     };
 
@@ -198,7 +198,7 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
 
         as_spans.push(quote! {
             #init_stmt => {
-                let lhs = None;
+                let mut lhs = parserc::span::Span::<<#input as parserc::input::Input>::Position>::None;
                 #span_stmt
                 lhs
             }
@@ -218,12 +218,10 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generic parserc::syntax::AsSpan for #item_ident #ty_generic #where_clause
+        impl #impl_generic parserc::span::ToSpan<<#input as parserc::input::Input>::Position> for #item_ident #ty_generic #where_clause
         {
 
-            fn as_span(&self) -> Option<parserc::inputs::Span> {
-                use parserc::inputs::SpanJoin;
-
+            fn to_span(&self) -> parserc::span::Span<<#input as parserc::input::Input>::Position> {
                 match self {
                     #(#as_spans)*
                 }
@@ -246,7 +244,7 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
         error
     } else {
         quote! {
-            parserc::errors::ErrorKind
+            parserc::errors::ErrorKind<<#input as parserc::input::Input>::Position>
         }
     };
 
@@ -273,8 +271,7 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
 
     let (impl_generic, ty_generic, where_clause) = item.generics.split_for_impl();
 
-    let token_stream = quote! {
-
+    quote! {
         impl #impl_generic parserc::syntax::Syntax<#input,#error> for #ident #ty_generic #where_clause
         {
 
@@ -287,19 +284,16 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
             }
         }
 
-        impl #impl_generic parserc::syntax::AsSpan for #ident #ty_generic #where_clause
+        impl #impl_generic parserc::span::ToSpan<<#input as parserc::input::Input>::Position> for #ident #ty_generic #where_clause
         {
 
-            fn as_span(&self) -> Option<parserc::inputs::Span> {
-                use parserc::inputs::SpanJoin;
-                let lhs = None;
+            fn to_span(&self) -> parserc::span::Span<<#input as parserc::input::Input>::Position> {
+                let mut lhs = parserc::span::Span::<<#input as parserc::input::Input>::Position>::None;
                 #span_stmt
                 lhs
             }
         }
-    };
-
-    token_stream.into()
+    }.into()
 }
 
 /// Drive `Syntax` implemenation for tuple (T,...)
@@ -329,7 +323,7 @@ pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl<I,E, #(#types),*> Syntax<I,E> for (#(#types),*)
             where
                 I: Input,
-                E: ParseError,
+                E: ParseError<I::Position>,
                 #(#types: Syntax<I,E>),*
             {
                 fn parse(input: I) -> Result<Self, I, E> {
@@ -341,15 +335,16 @@ pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
 
-            impl<#(#types),*> AsSpan for (#(#types),*)
+            impl<__Pos,#(#types),*> ToSpan<__Pos> for (#(#types),*)
             where
-                #(#types: AsSpan),*
+                __Pos: PartialOrd,
+                #(#types: ToSpan<__Pos>),*
             {
-                fn as_span(&self) -> Option<Span> {
-                    let mut lhs = None;
+                fn to_span(&self) -> Span<__Pos> {
+                    let mut lhs = Span::<__Pos>::None;
 
                     #(
-                        lhs = lhs.join(#pos.as_span());
+                        lhs ^= #pos.to_span();
                     )*
 
                     lhs
@@ -455,30 +450,30 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             impl<I,E> parserc::syntax::Syntax<I,E> for #ident<I>
             where
-                I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone,
-                E: parserc::errors::ParseError,
+                I: parserc::input::Input + parserc::input::StartWith<&'static [u8]> + Clone,
+                E: parserc::errors::ParseError<I::Position>,
             {
                  fn parse(input: I) -> parserc::errors::Result<Self, I, E> {
                      use parserc::parser::Parser;
                      #(
                          if let (Some(_),_) = parserc::parser::keyword(#lookahead.as_bytes()).ok().parse(input.clone())? {
-                             return Err(parserc::errors::ControlFlow::Recovable(E::expect_token(#key,input)));
+                             return Err(parserc::errors::ControlFlow::Recovable(parserc::errors::ErrorKind::Token(#key,input.to_span()).into()));
                          }
                      )*
 
                      parserc::parser::keyword(#key.as_bytes())
                          .map(|v| Self(v))
-                         .map_err(|_:E| E::expect_token(#key,input.clone()) )
+                         .map_err(|_:E| parserc::errors::ErrorKind::Token(#key,input.to_span()).into())
                          .parse(input.clone())
                  }
             }
 
-            impl<I> parserc::syntax::AsSpan for #ident<I>
+            impl<I> parserc::span::ToSpan<I::Position> for #ident<I>
             where
-                I: parserc::inputs::Input,
+                I: parserc::input::Input,
             {
-                fn as_span(&self) -> Option<parserc::inputs::Span> {
-                    self.0.as_span()
+                fn to_span(&self) -> parserc::span::Span<I::Position> {
+                    self.0.to_span()
                 }
             }
         });
@@ -517,21 +512,21 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
         pub enum #ident<I>
         where
-            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone,
+            I: parserc::input::Input + parserc::input::StartWith<&'static [u8]> + Clone,
         {
             #(#variants),*
         }
 
         impl<I,E> parserc::syntax::Syntax<I,E> for #ident<I>
         where
-            I: parserc::inputs::Input + parserc::inputs::StartWith<&'static [u8]> + Clone,
-            E: parserc::errors::ParseError,
+            I: parserc::input::Input + parserc::input::StartWith<&'static [u8]> + Clone,
+            E: parserc::errors::ParseError<I::Position>,
         {
              fn parse(input: I) -> parserc::errors::Result<Self, I, E> {
                  use parserc::parser::Parser;
                  #(#variant_stmts)*
 
-                 return Err(parserc::errors::ControlFlow::Recovable(E::expect_token(#ident_name,input)));
+                 return Err(parserc::errors::ControlFlow::Recovable(parserc::errors::ErrorKind::Token(#ident_name,input.to_span()).into()));
              }
         }
     }

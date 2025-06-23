@@ -2,39 +2,30 @@
 
 use std::fmt::Debug;
 
-use crate::inputs::Input;
+use crate::span::Span;
 
 #[derive(thiserror::Error, Debug, PartialEq)]
-pub enum ErrorKind {
+pub enum ErrorKind<P> {
     #[error("next")]
-    Next,
+    Next(Span<P>),
     #[error("next_if")]
-    NextIf,
+    NextIf(Span<P>),
     #[error("keyword")]
-    Keyword,
+    Keyword(Span<P>),
     #[error("take_until")]
-    TakeUntil,
+    TakeUntil(Span<P>),
     #[error("token")]
-    Token,
+    Token(&'static str, Span<P>),
 }
 
 /// Diagnosis error type that returns by `parsers` should implement this trait.
-pub trait ParseError: From<ErrorKind> + Debug + PartialEq {
-    fn expect_token<I: Input>(name: &'static str, input: I) -> Self;
-}
+pub trait ParseError<P>: From<ErrorKind<P>> {}
 
-impl ParseError for ErrorKind {
-    fn expect_token<I: Input>(_: &'static str, _: I) -> Self {
-        Self::Token
-    }
-}
+impl<P> ParseError<P> for ErrorKind<P> {}
 
 /// A [`ParseError`] wrapper type that control the parsing flow.
 #[derive(thiserror::Error, Debug, PartialEq)]
-pub enum ControlFlow<E>
-where
-    E: ParseError,
-{
+pub enum ControlFlow<E> {
     /// A fatal error must broke the parsing process.
     Fatal(E),
     /// A recovable error generally lead to a retrospective parsing process.
