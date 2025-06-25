@@ -7,6 +7,7 @@ use parserc_derive::def_tuple_syntax;
 use crate::{
     errors::{ParseError, Result},
     input::Input,
+    lang::LangInput,
     parser::Parser,
     span::{Span, ToSpan},
 };
@@ -225,6 +226,45 @@ where
 {
     fn to_span(&self) -> Span<Position> {
         self.pairs.to_span() ^ self.tail.to_span()
+    }
+}
+
+#[derive(Debug, PartialEq, PartialOrd, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum Or<F, S> {
+    First(F),
+    Second(S),
+}
+
+impl<I, E, F, S> Syntax<I, E> for Or<F, S>
+where
+    I: LangInput,
+    E: ParseError<I::Position>,
+    F: Syntax<I, E>,
+    S: Syntax<I, E>,
+{
+    fn parse(input: I) -> Result<Self, I, E> {
+        let (Some(first), input) = F::into_parser().ok().parse(input.clone())? else {
+            let (s, input) = S::parse(input)?;
+
+            return Ok((Self::Second(s), input));
+        };
+
+        Ok((Self::First(first), input))
+    }
+}
+
+impl<F, S, Position> ToSpan<Position> for Or<F, S>
+where
+    F: ToSpan<Position>,
+    S: ToSpan<Position>,
+    Position: PartialOrd,
+{
+    fn to_span(&self) -> Span<Position> {
+        match self {
+            Or::First(v) => v.to_span(),
+            Or::Second(v) => v.to_span(),
+        }
     }
 }
 

@@ -1,12 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use quote::{ToTokens, quote};
 use syn::{
-    Attribute, Error, ExprMatch, Fields, Index, Item, ItemEnum, ItemStruct, Type,
+    Attribute, Error, ExprMatch, Fields, Index, Item, ItemEnum, ItemStruct, Result, Type,
     parse_macro_input, spanned::Spanned,
 };
 
-#[proc_macro_derive(Syntax, attributes(error, input, fatal))]
+#[proc_macro_derive(Syntax, attributes(error, input, fatal, from))]
 pub fn derive_syntax_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(input as Item);
 
@@ -47,14 +47,19 @@ struct DriveFields {
     span_stmt: proc_macro2::TokenStream,
 }
 
-fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
+fn drive_fields(fields: &Fields, variant_fields: bool) -> Result<DriveFields> {
     let mut fatal_fields = HashSet::new();
+    let mut from_type_fields = HashMap::new();
 
     for (offset, field) in fields.iter().enumerate() {
         for attr in field.attrs.iter() {
-            match attr.to_token_stream().to_string().as_str() {
-                "#[fatal]" => {
+            match attr.meta.path().to_token_stream().to_string().as_str() {
+                "fatal" => {
                     fatal_fields.insert(offset);
+                }
+                "from" => {
+                    let ty: Type = attr.parse_args()?;
+                    from_type_fields.insert(offset, ty);
                 }
                 _ => {}
             }
@@ -97,18 +102,30 @@ fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
 
         let variable = init_stmts.last().unwrap();
 
-        if fatal_fields.contains(&offset) {
-            parse_stmts.push(quote! {
-                let (#variable,input) = SyntaxEx::ensure_parse(input)?;
-            });
+        if let Some(ty) = from_type_fields.get(&offset) {
+            if fatal_fields.contains(&offset) {
+                parse_stmts.push(quote! {
+                    let (#variable,input) = #ty::into_parser().map(|v|v.into()).fatal().parse(input)?;
+                });
+            } else {
+                parse_stmts.push(quote! {
+                    let (#variable,input) = #ty::into_parser().map(|v|v.into()).parse(input)?;
+                });
+            }
         } else {
-            parse_stmts.push(quote! {
-                let (#variable,input) = SyntaxEx::parse(input)?;
-            });
-        };
+            if fatal_fields.contains(&offset) {
+                parse_stmts.push(quote! {
+                    let (#variable,input) = SyntaxEx::ensure_parse(input)?;
+                });
+            } else {
+                parse_stmts.push(quote! {
+                    let (#variable,input) = SyntaxEx::parse(input)?;
+                });
+            }
+        }
     }
 
-    DriveFields {
+    Ok(DriveFields {
         init_stmt: quote! {
             #(#init_stmts),*
         },
@@ -118,7 +135,7 @@ fn drive_fields(fields: &Fields, variant_fields: bool) -> DriveFields {
         span_stmt: quote! {
             #(#span_stmts)*
         },
-    }
+    })
 }
 
 fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
@@ -149,7 +166,12 @@ fn drive_syntax_enum(item: ItemEnum) -> proc_macro::TokenStream {
             init_stmt,
             parse_stmt,
             span_stmt,
-        } = drive_fields(&v.fields, true);
+        } = match drive_fields(&v.fields, true) {
+            Ok(drive_fields) => drive_fields,
+            Err(err) => {
+                return err.into_compile_error().into();
+            }
+        };
 
         let ident = &v.ident;
 
@@ -254,7 +276,12 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
         init_stmt,
         parse_stmt,
         span_stmt,
-    } = drive_fields(&item.fields, false);
+    } = match drive_fields(&item.fields, false) {
+        Ok(drive_fields) => drive_fields,
+        Err(err) => {
+            return err.into_compile_error().into();
+        }
+    };
 
     let init_stmt = match item.fields {
         syn::Fields::Named(_) => {
