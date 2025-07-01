@@ -10,13 +10,15 @@ use syn::{
 pub fn derive_syntax_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(input as Item);
 
-    match item {
+    let token_stream = match item {
         Item::Enum(item) => drive_syntax_enum(item),
         Item::Struct(item) => drive_syntax_struct(item),
         _ => Error::new(item.span(), "Syntax: unsupport type")
             .into_compile_error()
             .into(),
-    }
+    };
+
+    token_stream
 }
 
 fn syntax_error_type(attrs: &[Attribute]) -> Option<proc_macro2::TokenStream> {
@@ -327,7 +329,7 @@ fn drive_syntax_struct(item: ItemStruct) -> proc_macro::TokenStream {
 #[proc_macro]
 pub fn def_tuple_syntax(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut stmts = vec![];
-    for i in 2..16 {
+    for i in 2..8 {
         let mut types = vec![];
 
         let mut pos = vec![];
@@ -531,7 +533,7 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ident = &expr.expr;
     let ident_name = expr.expr.to_token_stream().to_string();
 
-    quote! {
+    let token_stream = quote! {
         #(#stmts)*
 
         #[doc="Token parser"]
@@ -557,5 +559,7 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
              }
         }
     }
-    .into()
+    .into();
+
+    token_stream
 }

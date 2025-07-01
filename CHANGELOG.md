@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org).
 Note: In this file, do not use the hard wrap in the middle of a sentence for compatibility with GitHub comment style markdown rendering.
 -->
 
+## [0.9.2] - 2025-07-01
+
+- Syntax: add `Or` struct,
+
 ## [0.9.1] - 2025-06-23
 
 - Broken changes: redesign `Span`,
