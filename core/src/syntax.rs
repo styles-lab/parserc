@@ -13,7 +13,6 @@ use crate::{
 };
 
 pub use parserc_derive::Syntax;
-
 #[cfg(feature = "token")]
 pub use parserc_derive::tokens;
 
@@ -105,31 +104,6 @@ where
 }
 
 def_tuple_syntax!();
-
-/// An extension trait that adds `parse` func to `Input`.
-pub trait SyntaxEx: Input {
-    /// Parse a specific `Syntax` type.
-    fn parse<S, E>(self) -> Result<S, Self, E>
-    where
-        Self: Sized,
-        S: Syntax<Self, E>,
-        E: ParseError<Self::Position>,
-    {
-        S::parse(self)
-    }
-
-    /// Parse a specific `Syntax` type.
-    fn ensure_parse<S, E>(self) -> Result<S, Self, E>
-    where
-        Self: Sized,
-        S: Syntax<Self, E>,
-        E: ParseError<Self::Position>,
-    {
-        S::into_parser().fatal().parse(self)
-    }
-}
-
-impl<I> SyntaxEx for I where I: Input {}
 
 /// A short syntax for grouping token that surrounds a syntax body.
 #[derive(Debug, PartialEq, Clone)]

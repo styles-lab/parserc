@@ -18,16 +18,15 @@ tokens!(match Token {
 });
 
 #[derive(Syntax, PartialEq, Debug)]
-#[input(TokenStream<'a>)]
-#[error(ErrorKind<usize>)]
+#[syntax(input = TokenStream<'a>, error = ErrorKind<usize>)]
 pub struct Mock<'a> {
     pub f1: LeftBracket<TokenStream<'a>>,
-    #[fatal]
+    #[syntax(fatal,map(||))]
     pub f2: RightBracket<TokenStream<'a>>,
 }
 
 #[derive(Syntax, PartialEq, Debug)]
-#[input(TokenStream<'a>)]
+#[syntax(input = TokenStream<'a>)]
 pub enum MockEnum<'a> {
     LeftBracket(LeftBracket<TokenStream<'a>>),
     RightBracket {
@@ -36,7 +35,7 @@ pub enum MockEnum<'a> {
 }
 
 #[derive(Syntax, PartialEq, Debug)]
-#[input(I)]
+#[syntax(input = I)]
 pub struct Mock2<I>
 where
     I: Input + Clone + StartWith<&'static [u8]>,
@@ -44,7 +43,12 @@ where
 {
     pub f1: LeftBracketBracket<I>,
     #[fatal]
+    #[map_err(map_err)]
     pub f2: RightBracket<I>,
+}
+
+fn map_err<P>(e: ErrorKind<P>) -> ErrorKind<P> {
+    e
 }
 
 #[test]
@@ -88,10 +92,10 @@ fn test_syntax() {
     );
 
     assert_eq!(
-        Mock::parse(TokenStream::from("{")),
+        Mock2::parse(TokenStream::from("{{")),
         Err(ControlFlow::Fatal(ErrorKind::Token(
             "}",
-            Span::Some { start: 1, end: 1 }
+            Span::Some { start: 2, end: 2 }
         )))
     );
 
@@ -174,6 +178,8 @@ fn test_delimiter() {
 
 #[test]
 fn to_span() {
+    _ = pretty_env_logger::try_init();
+
     assert_eq!(
         LeftBracket(TokenStream::from("{")).to_span(),
         Span::Some { start: 0, end: 1 }

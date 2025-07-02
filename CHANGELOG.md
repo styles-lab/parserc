@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org).
 Note: In this file, do not use the hard wrap in the middle of a sentence for compatibility with GitHub comment style markdown rendering.
 -->
 
+## [0.9.3] - 2025-07-02
+
+- Derive: syntax add `map_err` attribute.
+
 ## [0.9.2] - 2025-07-01
 
 - Syntax: add `Or` struct,

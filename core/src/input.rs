@@ -102,4 +102,15 @@ pub trait Input: PartialEq + Debug {
             end: self.end(),
         }
     }
+
+    #[cfg(feature = "syntax")]
+    /// Parse a specific `Syntax` type.
+    fn parse<S, E>(self) -> crate::errors::Result<S, Self, E>
+    where
+        Self: Sized,
+        S: crate::syntax::Syntax<Self, E>,
+        E: crate::errors::ParseError<Self::Position>,
+    {
+        S::parse(self)
+    }
 }
