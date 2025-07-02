@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use crate::span::Span;
+use crate::span::{Span, ToSpan};
 
 #[derive(thiserror::Error, Debug, PartialEq)]
 pub enum ErrorKind<P> {
@@ -16,6 +16,21 @@ pub enum ErrorKind<P> {
     TakeUntil(Span<P>),
     #[error("token")]
     Token(&'static str, Span<P>),
+}
+
+impl<P> ToSpan<P> for ErrorKind<P>
+where
+    P: Clone,
+{
+    fn to_span(&self) -> Span<P> {
+        match self {
+            ErrorKind::Next(span) => span.clone(),
+            ErrorKind::NextIf(span) => span.clone(),
+            ErrorKind::Keyword(span) => span.clone(),
+            ErrorKind::TakeUntil(span) => span.clone(),
+            ErrorKind::Token(_, span) => span.clone(),
+        }
+    }
 }
 
 /// Diagnosis error type that returns by `parsers` should implement this trait.
