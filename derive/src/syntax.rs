@@ -109,6 +109,7 @@ struct Field {
     ident: Ident,
     from_ty: Option<Type>,
     map_err: Option<Expr>,
+    try_filter: Option<Expr>,
     fatal: bool,
 }
 
@@ -120,6 +121,7 @@ impl TryFrom<(usize, &syn::Field)> for Field {
         let mut fatal = false;
         let mut from_ty = None;
         let mut map_err_fn = None;
+        let mut try_filter = None;
 
         for attr in &field.attrs {
             let path = attr.path();
@@ -130,6 +132,9 @@ impl TryFrom<(usize, &syn::Field)> for Field {
             } else if path.is_ident("map_err") {
                 let expr: Expr = attr.parse_args()?;
                 map_err_fn = Some(expr);
+            } else if path.is_ident("try_filter") {
+                let expr: Expr = attr.parse_args()?;
+                try_filter = Some(expr);
             } else if path.is_ident("fatal") {
                 fatal = true;
             }
@@ -140,12 +145,14 @@ impl TryFrom<(usize, &syn::Field)> for Field {
                 ident: ident.clone(),
                 from_ty,
                 map_err: map_err_fn,
+                try_filter,
                 fatal,
             }),
             None => Ok(Self {
                 ident: format_ident!("v_{}", index),
                 from_ty,
                 map_err: map_err_fn,
+                try_filter,
                 fatal,
             }),
         }
@@ -192,8 +199,13 @@ fn derive_syntax_for_enum(item: &ItemEnum) -> Result<proc_macro::TokenStream> {
                 .as_ref()
                 .map(|expr| quote! { .map_control_flow_err(#expr) });
 
+            let try_filter = field
+                .try_filter
+                .as_ref()
+                .map(|expr| quote! { .try_filter_control_flow(#expr) });
+
             quote! {
-                let (#ident,input) = input.parse() #from_ty #map_err #fatal ?;
+                let (#ident,input) = input.parse() #from_ty #map_err #try_filter #fatal ?;
             }
         });
 
@@ -244,6 +256,7 @@ fn derive_syntax_for_enum(item: &ItemEnum) -> Result<proc_macro::TokenStream> {
             fn parse(input: #ty_input) -> parserc::errors::Result<Self, #ty_input, #ty_error> {
                 use parserc::parser::Parser;
                 use parserc::errors::Map as _;
+                use parserc::errors::TryFilter as _;
                 use parserc::errors::MapFatal as _;
                 use parserc::errors::MapError as _;
 
@@ -294,8 +307,13 @@ fn derive_syntax_for_struct(item: &ItemStruct) -> Result<proc_macro::TokenStream
             .as_ref()
             .map(|expr| quote! { .map_control_flow_err(#expr) });
 
+        let try_filter = field
+            .try_filter
+            .as_ref()
+            .map(|expr| quote! { .try_filter_control_flow(#expr) });
+
         quote! {
-            let (#ident,input) = input.parse() #from_ty #map_err #fatal ?;
+            let (#ident,input) = input.parse() #from_ty #map_err #try_filter #fatal ?;
         }
     });
 
@@ -321,6 +339,7 @@ fn derive_syntax_for_struct(item: &ItemStruct) -> Result<proc_macro::TokenStream
             fn parse(input: #ty_input) -> parserc::errors::Result<Self, #ty_input, #ty_error> {
                 use parserc::parser::Parser;
                 use parserc::errors::Map as _;
+                use parserc::errors::TryFilter as _;
                 use parserc::errors::MapFatal as _;
                 use parserc::errors::MapError as _;
 

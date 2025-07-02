@@ -18,7 +18,7 @@ pub fn tokens(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 }
 
 /// Derive `Syntax` trait for `structs/enums`.
-#[proc_macro_derive(Syntax, attributes(syntax, fatal, from, map_err))]
+#[proc_macro_derive(Syntax, attributes(syntax, fatal, from, map_err, try_filter))]
 pub fn derive_syntax_trait(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     syntax::derive_syntax_trait(input)
 }

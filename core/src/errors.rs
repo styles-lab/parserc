@@ -70,20 +70,20 @@ impl<T, I, E> MapFatal for Result<T, I, E> {
 }
 
 /// An extension trait for `std::result::Result<(T, I), ControlFlow<E>>`
-pub trait MapError<E1, E2> {
+pub trait MapError<E> {
     type Output;
     /// map underlying `ControlFlow`
     fn map_control_flow_err<F>(self, f: F) -> Self::Output
     where
-        F: FnOnce(E1) -> E2;
+        F: FnOnce(E) -> E;
 }
 
-impl<T, I, E1, E2> MapError<E1, E2> for Result<T, I, E1> {
-    type Output = Result<T, I, E2>;
+impl<T, I, E> MapError<E> for Result<T, I, E> {
+    type Output = Result<T, I, E>;
 
     fn map_control_flow_err<F>(self, f: F) -> Self::Output
     where
-        F: FnOnce(E1) -> E2,
+        F: FnOnce(E) -> E,
     {
         match self {
             Err(ControlFlow::Fatal(err)) => Err(ControlFlow::Fatal(f(err))),
@@ -112,6 +112,26 @@ impl<T1, T2, I, E> Map<T1, T2> for Result<T1, I, E> {
     {
         match self {
             Ok((t, i)) => Ok((f(t), i)),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+/// An extension trait for `std::result::Result<(T, I), ControlFlow<E>>`
+pub trait TryFilter<T, I, E> {
+    /// map underlying `ControlFlow`
+    fn try_filter_control_flow<F>(self, f: F) -> Result<T, I, E>
+    where
+        F: FnOnce(T) -> std::result::Result<T, ControlFlow<E>>;
+}
+
+impl<T, I, E> TryFilter<T, I, E> for Result<T, I, E> {
+    fn try_filter_control_flow<F>(self, f: F) -> Result<T, I, E>
+    where
+        F: FnOnce(T) -> std::result::Result<T, ControlFlow<E>>,
+    {
+        match self {
+            Ok((t, i)) => f(t).map(|t| (t, i)),
             Err(err) => Err(err),
         }
     }
